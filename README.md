@@ -1,47 +1,95 @@
-# OpenNext Starter
+# SmartInversión — Marketing Content
 
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+Aplicación privada para gestionar el flujo de contenido de marketing de SmartInversión, desde evidencia y campañas hasta trazabilidad y estados operativos.
 
-## Getting Started
+## Objetivo
 
-Read the documentation at https://opennext.js.org/cloudflare.
+Obtener leads de marketing prefiltrados con renta declarada desde CLP 1.500.000.
 
-## Develop
+Caso testigo inicial: `MC-REG-001`.
 
-Run the Next.js development server:
+## Estado
 
-```bash
-npm run dev
-# or similar package manager command
-```
+Proyecto en Sprint 0: preparación de implementación.
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Infraestructura validada:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+- Next.js desplegado en Cloudflare Workers.
+- PostgreSQL provisionado en Supabase Free.
+- Repositorio privado con CI en Linux.
+- Costo actual de plataforma: USD 0.
 
-## Preview
+## Arquitectura base
 
-Preview the application locally on the Cloudflare runtime:
+- Next.js 15.5.18
+- TypeScript
+- React 19
+- OpenNext para Cloudflare 1.20.1
+- Cloudflare Workers Free
+- Supabase Free: PostgreSQL, Auth y RLS
+- Supabase CLI 2.109.1
+- Node.js 24
 
-```bash
-npm run preview
-# or similar package manager command
-```
+Aplicación temporal: <https://smartinversion-marketing.smartinversion.workers.dev>
 
-## Deploy
+Dominio objetivo: `app.smartinversion.cl`
 
-Deploy the application to Cloudflare:
+## Activos audiovisuales
 
-```bash
-npm run deploy
-# or similar package manager command
-```
+Los videos, audios y archivos pesados permanecen en almacenamiento local controlado.
 
-## Learn More
+La plataforma almacenará únicamente referencias, metadatos, trazabilidad, estados e identificadores de integridad.
 
-To learn more about Next.js, take a look at the following resources:
+No se deben incorporar activos audiovisuales pesados al repositorio ni a Supabase.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Comandos
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- Instalar dependencias: `npm ci`
+- Desarrollo local: `npm run dev`
+- Validación completa: `npm run check`
+- Lint: `npm run lint`
+- TypeScript: `npm run typecheck`
+- Build Next.js: `npm run build`
+- Build Cloudflare: `npm run build:worker`
+- Vista previa Cloudflare: `npm run preview`
+- Despliegue manual: `npm run deploy`
+
+## Supabase
+
+La configuración y las migraciones se versionan dentro de `supabase/`.
+
+El proyecto remoto está alojado en South America (São Paulo).
+
+Toda migración debe estar versionada, revisada y acompañada por una estrategia de verificación y reversión cuando corresponda.
+
+## Seguridad
+
+Nunca versionar:
+
+- `.dev.vars`, `.env` o `.env.local`;
+- contraseñas de base de datos;
+- tokens personales;
+- claves secretas o `service_role`;
+- información personal real;
+- leads reales.
+
+## Flujo de cambios
+
+1. Crear una rama desde `main`.
+2. Implementar un cambio pequeño.
+3. Ejecutar `npm run check`.
+4. Publicar la rama.
+5. Crear un Pull Request.
+6. Esperar CI verde.
+7. Fusionar mediante squash.
+8. Eliminar la rama integrada.
+
+No enviar cambios directamente a `main`.
+
+## Documentación vigente
+
+- ADR-013: Plataforma de despliegue Cloudflare + Supabase Free.
+- ADR-014: Política de almacenamiento local de activos pesados.
+- Especificación Técnica v1.1.
+- Plan Maestro de Implementación v1.1.
+- Sprint 0 v1.1.
