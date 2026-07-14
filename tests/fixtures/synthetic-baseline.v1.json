@@ -1,0 +1,349 @@
+{
+  "metadata": {
+    "fixture_id": "synthetic_baseline_v1",
+    "schema_version": "1.0",
+    "fixture_version": 1,
+    "created_at": "2026-01-01T12:00:00Z",
+    "purpose": "Deterministic non-production baseline for Marketing Content",
+    "contains_real_pii": false,
+    "external_effects_allowed": false
+  },
+  "roles": [
+    {
+      "id": "10000000-0000-4000-8000-000000000001",
+      "code": "administrator",
+      "name": "Administrator"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000002",
+      "code": "investment_analyst",
+      "name": "Investment Analyst"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000003",
+      "code": "campaign_manager",
+      "name": "Campaign Manager"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000004",
+      "code": "commercial_liaison",
+      "name": "Commercial Liaison"
+    },
+    {
+      "id": "10000000-0000-4000-8000-000000000005",
+      "code": "system_worker",
+      "name": "System Worker"
+    }
+  ],
+  "profiles": [
+    {
+      "id": "20000000-0000-4000-8000-000000000001",
+      "display_name": "Synthetic Administrator 001",
+      "account_status": "active",
+      "is_synthetic": true
+    },
+    {
+      "id": "20000000-0000-4000-8000-000000000002",
+      "display_name": "Synthetic Analyst 001",
+      "account_status": "active",
+      "is_synthetic": true
+    },
+    {
+      "id": "20000000-0000-4000-8000-000000000003",
+      "display_name": "Synthetic Campaign Manager 001",
+      "account_status": "active",
+      "is_synthetic": true
+    },
+    {
+      "id": "20000000-0000-4000-8000-000000000004",
+      "display_name": "Synthetic Commercial Liaison 001",
+      "account_status": "active",
+      "is_synthetic": true
+    }
+  ],
+  "role_assignments": [
+    {
+      "id": "30000000-0000-4000-8000-000000000001",
+      "profile_id": "20000000-0000-4000-8000-000000000001",
+      "role_id": "10000000-0000-4000-8000-000000000001",
+      "valid_from": "2026-01-01T12:00:00Z",
+      "reason": "Synthetic baseline"
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000002",
+      "profile_id": "20000000-0000-4000-8000-000000000002",
+      "role_id": "10000000-0000-4000-8000-000000000002",
+      "valid_from": "2026-01-01T12:00:00Z",
+      "reason": "Synthetic baseline"
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000003",
+      "profile_id": "20000000-0000-4000-8000-000000000003",
+      "role_id": "10000000-0000-4000-8000-000000000003",
+      "valid_from": "2026-01-01T12:00:00Z",
+      "reason": "Synthetic baseline"
+    },
+    {
+      "id": "30000000-0000-4000-8000-000000000004",
+      "profile_id": "20000000-0000-4000-8000-000000000004",
+      "role_id": "10000000-0000-4000-8000-000000000004",
+      "valid_from": "2026-01-01T12:00:00Z",
+      "reason": "Synthetic baseline"
+    }
+  ],
+  "opportunities": [
+    {
+      "id": "40000000-0000-4000-8000-000000000001",
+      "code": "SYN-OPP-001",
+      "name": "Synthetic Regional Opportunity",
+      "audience": "Synthetic investor audience",
+      "priority": 1,
+      "status": "researching",
+      "owner_profile_id": "20000000-0000-4000-8000-000000000003",
+      "is_synthetic": true
+    }
+  ],
+  "sources": [
+    {
+      "id": "50000000-0000-4000-8000-000000000001",
+      "code": "SYN-SRC-001",
+      "source_type": "synthetic_document",
+      "title": "Synthetic Market Source",
+      "issuer": "Synthetic Issuer",
+      "source_date": "2026-01-01",
+      "status": "verified",
+      "is_synthetic": true
+    }
+  ],
+  "evidence_items": [
+    {
+      "id": "51000000-0000-4000-8000-000000000001",
+      "code": "SYN-EVD-001",
+      "source_id": "50000000-0000-4000-8000-000000000001",
+      "evidence_type": "synthetic_indicator",
+      "value": 100,
+      "unit": "synthetic_index",
+      "period_start": "2026-01-01",
+      "period_end": "2026-01-31",
+      "status": "approved",
+      "is_synthetic": true
+    }
+  ],
+  "claims": [
+    {
+      "id": "52000000-0000-4000-8000-000000000001",
+      "code": "SYN-CLM-001",
+      "exact_wording": "Synthetic claim for workflow validation only.",
+      "visibility": "internal",
+      "status": "approved",
+      "is_synthetic": true
+    }
+  ],
+  "claim_sources": [
+    {
+      "id": "53000000-0000-4000-8000-000000000001",
+      "claim_id": "52000000-0000-4000-8000-000000000001",
+      "evidence_item_id": "51000000-0000-4000-8000-000000000001"
+    }
+  ],
+  "campaigns": [
+    {
+      "id": "60000000-0000-4000-8000-000000000001",
+      "code": "SYN-MC-001",
+      "name": "Synthetic Regional Campaign",
+      "opportunity_id": "40000000-0000-4000-8000-000000000001",
+      "owner_profile_id": "20000000-0000-4000-8000-000000000003",
+      "primary_objective": "Validate the synthetic campaign workflow",
+      "status": "draft",
+      "starts_at": "2026-01-01T12:00:00Z",
+      "is_synthetic": true
+    }
+  ],
+  "campaign_briefs": [
+    {
+      "id": "61000000-0000-4000-8000-000000000001",
+      "campaign_id": "60000000-0000-4000-8000-000000000001",
+      "brief_version": 1,
+      "audience": "Synthetic investor audience",
+      "problem": "Synthetic campaign problem",
+      "value_proposition": "Synthetic value proposition",
+      "central_message": "Synthetic message for workflow validation",
+      "call_to_action": "Complete a synthetic evaluation",
+      "prefilter_rule": "income_1500000_or_more",
+      "approval_status": "draft"
+    }
+  ],
+  "hypotheses": [
+    {
+      "id": "62000000-0000-4000-8000-000000000001",
+      "campaign_id": "60000000-0000-4000-8000-000000000001",
+      "code": "SYN-HYP-001",
+      "statement": "A synthetic educational message produces a measurable test event.",
+      "variable": "synthetic_message",
+      "expected_result": "synthetic_event_recorded",
+      "measurement_period": "synthetic_window",
+      "status": "pending"
+    }
+  ],
+  "content_items": [
+    {
+      "id": "63000000-0000-4000-8000-000000000001",
+      "campaign_id": "60000000-0000-4000-8000-000000000001",
+      "code": "SYN-VID-001",
+      "content_type": "video",
+      "pillar": "synthetic_education",
+      "funnel_stage": "attention",
+      "objective": "Validate content workflow",
+      "message": "Synthetic content message",
+      "hook": "Synthetic hook",
+      "call_to_action": "Synthetic CTA",
+      "status": "backlog",
+      "is_synthetic": true
+    }
+  ],
+  "content_versions": [
+    {
+      "id": "64000000-0000-4000-8000-000000000001",
+      "content_item_id": "63000000-0000-4000-8000-000000000001",
+      "version_number": 1,
+      "script": "Synthetic script for workflow validation only.",
+      "change_summary": "Initial synthetic version",
+      "status": "draft",
+      "is_synthetic": true
+    }
+  ],
+  "content_claims": [
+    {
+      "id": "65000000-0000-4000-8000-000000000001",
+      "content_version_id": "64000000-0000-4000-8000-000000000001",
+      "claim_id": "52000000-0000-4000-8000-000000000001"
+    }
+  ],
+  "lead_scenarios": [
+    {
+      "id": "70000000-0000-4000-8000-000000000001",
+      "code": "SYN-LEAD-001",
+      "name_original": "Synthetic Prospect 001",
+      "email_original": "synthetic-prospect-001@example.invalid",
+      "phone_original": "+10000000001",
+      "income_range_code": "income_1500000_or_more",
+      "income_mode": "individual",
+      "intent_declared": true,
+      "classification": "prefiltered",
+      "is_test": true,
+      "is_synthetic": true
+    },
+    {
+      "id": "70000000-0000-4000-8000-000000000002",
+      "code": "SYN-LEAD-002",
+      "name_original": "Synthetic Prospect 002",
+      "email_original": "synthetic-prospect-002@example.invalid",
+      "phone_original": "+10000000002",
+      "income_range_code": "income_below_1500000",
+      "income_mode": "individual",
+      "intent_declared": true,
+      "classification": "early",
+      "is_test": true,
+      "is_synthetic": true
+    },
+    {
+      "id": "70000000-0000-4000-8000-000000000003",
+      "code": "SYN-LEAD-003",
+      "name_original": "Synthetic Prospect 003",
+      "email_original": null,
+      "phone_original": null,
+      "income_range_code": "income_not_declared",
+      "income_mode": null,
+      "intent_declared": false,
+      "classification": "incomplete",
+      "is_test": true,
+      "is_synthetic": true
+    },
+    {
+      "id": "70000000-0000-4000-8000-000000000004",
+      "code": "SYN-LEAD-004",
+      "duplicate_of_id": "70000000-0000-4000-8000-000000000001",
+      "classification": "duplicate",
+      "is_test": true,
+      "is_synthetic": true
+    },
+    {
+      "id": "70000000-0000-4000-8000-000000000005",
+      "code": "SYN-LEAD-005",
+      "name_original": "Synthetic Test Prospect",
+      "email_original": "synthetic-test@example.invalid",
+      "phone_original": "+10000000005",
+      "income_range_code": "income_1500000_or_more",
+      "income_mode": "complemented",
+      "intent_declared": true,
+      "classification": "test",
+      "is_test": true,
+      "is_synthetic": true
+    }
+  ],
+  "lead_deliveries": [
+    {
+      "id": "71000000-0000-4000-8000-000000000001",
+      "lead_id": "70000000-0000-4000-8000-000000000001",
+      "destination_type": "synthetic_sink",
+      "destination_reference": "synthetic-destination-001",
+      "idempotency_key": "synthetic-delivery-001",
+      "status": "pending",
+      "attempt_count": 0
+    },
+    {
+      "id": "71000000-0000-4000-8000-000000000002",
+      "lead_id": "70000000-0000-4000-8000-000000000002",
+      "destination_type": "synthetic_sink",
+      "destination_reference": "synthetic-destination-001",
+      "idempotency_key": "synthetic-delivery-002",
+      "status": "confirmed",
+      "attempt_count": 1,
+      "confirmed_at": "2026-01-01T12:05:00Z"
+    },
+    {
+      "id": "71000000-0000-4000-8000-000000000003",
+      "lead_id": "70000000-0000-4000-8000-000000000005",
+      "destination_type": "synthetic_sink",
+      "destination_reference": "synthetic-destination-001",
+      "idempotency_key": "synthetic-delivery-003",
+      "status": "retry_scheduled",
+      "attempt_count": 1,
+      "next_attempt_at": "2026-01-01T12:10:00Z"
+    }
+  ],
+  "metric_definitions": [
+    {
+      "id": "80000000-0000-4000-8000-000000000001",
+      "code": "synthetic_prefiltered_leads",
+      "name": "Synthetic Prefiltered Leads",
+      "unit": "count",
+      "version": 1
+    }
+  ],
+  "metric_observations": [
+    {
+      "id": "81000000-0000-4000-8000-000000000001",
+      "campaign_id": "60000000-0000-4000-8000-000000000001",
+      "metric_definition_id": "80000000-0000-4000-8000-000000000001",
+      "value": 1,
+      "observed_at": "2026-01-01T12:30:00Z",
+      "source": "synthetic_fixture",
+      "is_synthetic": true
+    }
+  ],
+  "learning_records": [
+    {
+      "id": "82000000-0000-4000-8000-000000000001",
+      "campaign_id": "60000000-0000-4000-8000-000000000001",
+      "hypothesis_id": "62000000-0000-4000-8000-000000000001",
+      "observation": "Synthetic observation pending evaluation.",
+      "evidence": "Synthetic fixture event.",
+      "interpretation": null,
+      "uncertainty": "No real-world inference is permitted.",
+      "decision": "pending",
+      "status": "pending",
+      "is_synthetic": true
+    }
+  ]
+}
