@@ -1,15 +1,11 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { requireServerSupabaseConfig } from "./server-config";
 
 export async function createClient() {
   const cookieStore = await cookies();
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const publishableKey =
-    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-
-  if (!url || !publishableKey) {
-    throw new Error("Missing public Supabase environment variables.");
-  }
+  const { url, publishableKey } =
+    await requireServerSupabaseConfig();
 
   return createServerClient(url, publishableKey, {
     cookies: {
@@ -22,8 +18,8 @@ export async function createClient() {
             cookieStore.set(name, value, options);
           });
         } catch {
-          // Los Server Components no pueden modificar cookies.
-          // El middleware gestionará la renovación de sesión más adelante.
+          // Server Components cannot modify cookies.
+          // Session renewal will be handled by middleware later.
         }
       },
     },
