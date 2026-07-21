@@ -1,6 +1,6 @@
 # Preliminary Core Schema
 
-## Marketing Content — SmartInversión
+## Marketing Content — Smartinversion
 
 - **Work item:** S0-010
 - **Status:** Approved preliminary design

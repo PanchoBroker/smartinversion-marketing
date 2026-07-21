@@ -1,10 +1,10 @@
 # Convenciones de datos
 
-**Proyecto:** Marketing Content — SmartInversión
+**Proyecto:** Marketing Content — Smartinversion
 **Versión:** 1.0
 **Fecha:** 2026-07-14
 **Estado:** Propuesta normativa; se considera aprobada al integrarse en `main`
-**Responsable:** Equipo SmartInversión
+**Responsable:** Equipo Smartinversion
 
 ## 1. Propósito
 

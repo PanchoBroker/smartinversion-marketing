@@ -1,6 +1,6 @@
 # Gate G0 Review Record
 
-## Marketing Content — SmartInversión
+## Marketing Content — Smartinversion
 
 | Field | Value |
 |---|---|

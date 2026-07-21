@@ -1,6 +1,6 @@
-# SmartInversión — Marketing Content
+# Smartinversion — Marketing Content
 
-Aplicación privada para gestionar el flujo de contenido de marketing de SmartInversión, desde evidencia y campañas hasta trazabilidad y estados operativos.
+Aplicación privada para gestionar el flujo de contenido de marketing de Smartinversion, desde evidencia y campañas hasta trazabilidad y estados operativos.
 
 ## Objetivo
 

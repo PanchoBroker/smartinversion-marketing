@@ -1,6 +1,6 @@
 # Access Control Matrix
 
-## Marketing Content — SmartInversión
+## Marketing Content — Smartinversion
 
 - **Work item:** S0-011
 - **Status:** Approved preliminary access model
@@ -668,7 +668,7 @@ The following operations use separate permissions:
 
 ### 20.2 Small-team exception
 
-SmartInversión may initially have one person performing several responsibilities.
+Smartinversion may initially have one person performing several responsibilities.
 
 When the same person exercises both preparation and approval roles:
 
