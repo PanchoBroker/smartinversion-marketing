@@ -1,10 +1,10 @@
 # Enabling Decision Register
 
-## Marketing Content — SmartInversión
+## Marketing Content — Smartinversion
 
 - **Work item:** S0-019 / Gate G0 review
 - **Status:** Under Gate G0 review
-- **Owner:** SmartInversión product owner
+- **Owner:** Smartinversion product owner
 - **Updated:** 2026-07-20
 - **Purpose:** Record the status, owner, rationale, evidence and blocking effect of decisions D-01 through D-08.
 

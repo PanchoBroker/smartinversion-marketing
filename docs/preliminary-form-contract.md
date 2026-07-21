@@ -1,6 +1,6 @@
 # Preliminary Public Form Contract
 
-## Marketing Content — SmartInversión
+## Marketing Content — Smartinversion
 
 - **Work item:** S0-015
 - **Status:** Preliminary normative proposal; approved when merged into `main`
@@ -10,7 +10,7 @@
 
 ## 1. Purpose
 
-This document defines the preliminary public form contract for Marketing Content — SmartInversión.
+This document defines the preliminary public form contract for Marketing Content — Smartinversion.
 
 It establishes:
 
@@ -256,7 +256,7 @@ The server MUST reject or remove unknown properties according to the implementat
 
 The field records whether the prospect affirms the following business meaning:
 
-> I want SmartInversión to contact me to evaluate a real-estate investment opportunity.
+> I want Smartinversion to contact me to evaluate a real-estate investment opportunity.
 
 Rules:
 
@@ -686,7 +686,7 @@ Rules:
 
 Recommended user-facing meaning:
 
-> Recibimos tus datos correctamente. El equipo de SmartInversión podrá contactarte para revisar tu interés y orientarte sobre los próximos pasos.
+> Recibimos tus datos correctamente. El equipo de Smartinversion podrá contactarte para revisar tu interés y orientarte sobre los próximos pasos.
 
 ## 22. Public error envelope
 

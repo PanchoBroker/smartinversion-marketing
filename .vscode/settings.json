@@ -1,5 +1,7 @@
 {
 	"files.associations": {
 		"wrangler.json": "jsonc"
-	}
+	},
+	"editor.formatOnSave": false,
+	"editor.fontSize": 15
 }

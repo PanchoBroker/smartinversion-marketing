@@ -4,7 +4,7 @@
 
 | Field | Value |
 |---|---|
-| Project | Marketing Content — SmartInversión |
+| Project | Marketing Content — Smartinversion |
 | Work item | S0-017 — Requirements traceability |
 | Version | 1.0-draft |
 | Status | Proposed for G0 review |

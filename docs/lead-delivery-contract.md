@@ -1,6 +1,6 @@
 # Preliminary Lead Delivery Contract
 
-## Marketing Content — SmartInversión
+## Marketing Content — Smartinversion
 
 - **Work item:** S0-016
 - **Status:** Preliminary normative proposal; approved when merged into `main`
@@ -10,7 +10,7 @@
 
 ## 1. Purpose
 
-This document defines the preliminary lead-delivery contract for Marketing Content — SmartInversión.
+This document defines the preliminary lead-delivery contract for Marketing Content — Smartinversion.
 
 It establishes:
 

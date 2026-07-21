@@ -1,6 +1,6 @@
 # Minimum Observability Standard
 
-## Marketing Content — SmartInversión
+## Marketing Content — Smartinversion
 
 - **Work item:** S0-014
 - **Status:** Approved minimum observability foundation

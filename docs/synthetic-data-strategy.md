@@ -1,6 +1,6 @@
 # Synthetic Data Strategy
 
-## Marketing Content — SmartInversión
+## Marketing Content — Smartinversion
 
 - **Work item:** S0-013
 - **Status:** Approved synthetic-data foundation
