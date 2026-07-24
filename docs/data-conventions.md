@@ -112,27 +112,29 @@ El formato inicial será:
 <PREFIJO>-<AÑO>-<SECUENCIA_DE_6_DÍGITOS>
 ```
 
-Ejemplos:
+Ejemplos iniciales aprobados:
 
 ```text
+OPP-2026-000001
 CAM-2026-000001
-CNT-2026-000001
-LEAD-2026-000001
 ```
 
 ### 5.2. Reglas
 
 - El código humano NO DEBE reemplazar al UUID como clave primaria.
-- El código DEBE ser único dentro de su dominio.
+- El código DEBE ser único dentro de su entidad.
+- `OPP` DEBE utilizarse para oportunidades y `CAM` para campañas.
 - El prefijo DEBE tener entre 3 y 5 letras ASCII mayúsculas.
 - El año DEBE tener cuatro dígitos.
 - La secuencia DEBE completarse con ceros a la izquierda.
-- El código DEBE generarse en el servidor o en la base de datos dentro de una operación transaccional.
-- El navegador NO DEBE generar códigos definitivos.
+- PostgreSQL DEBE generar el código dentro de una operación transaccional.
+- La generación DEBE ser segura ante concurrencia.
+- Cada entidad y año calendario DEBEN utilizar una secuencia independiente.
+- El frontend y los clientes no confiables NO DEBEN generar códigos definitivos.
 - Una vez asignado, el código NO DEBE cambiar.
 - El código NO DEBE contener PII, secretos ni información de negocio mutable.
 - El código NO DEBE usarse como mecanismo de autorización.
-- Los prefijos definitivos por entidad se aprobarán junto con el esquema preliminar de S0-010.
+- `leads` permanece fuera del esquema físico de S1-008 hasta resolver la separación de datos restringidos.
 
 Nombre recomendado de la columna:
 
@@ -245,7 +247,11 @@ published
 archived
 ```
 
-Para vocabularios cerrados y excepcionalmente estables PUEDE usarse un enum de PostgreSQL. Para vocabularios que puedan evolucionar se DEBERÍAN preferir catálogos, restricciones o tablas de referencia.
+Los ciclos de vida de oportunidades y campañas DEBEN utilizar el servicio relacional de transiciones controladas establecido por S1-007.
+
+Los enums de PostgreSQL y las restricciones `CHECK` de vocabulario NO DEBEN representar estados evolutivos de esos ciclos de vida.
+
+Las restricciones `CHECK` PUEDEN utilizarse para invariantes estructurales estables que no representen un vocabulario evolutivo.
 
 ## 10. Tipos de datos
 
@@ -416,7 +422,7 @@ Las políticas RLS, relaciones y privilegios definitivos deben diseñarse según
 | Área | Convención |
 |---|---|
 | Clave primaria | UUID generado con `gen_random_uuid()` |
-| Código humano | Prefijo, año y secuencia de seis dígitos |
+| Código humano | `OPP` y `CAM`, año y secuencia PostgreSQL de seis dígitos |
 | Idioma técnico | Inglés |
 | Convención de nombres | `snake_case` |
 | Tablas | Sustantivos plurales |
@@ -426,7 +432,7 @@ Las políticas RLS, relaciones y privilegios definitivos deben diseñarse según
 | Nulabilidad | `not null` por defecto |
 | Auditoría temporal | `created_at` y `updated_at` |
 | Concurrencia | Campo `version` cuando corresponda |
-| Estados | Código estable en minúsculas |
+| Estados | Código estable en minúsculas y transición relacional mediante S1-007 |
 | Eliminación lógica | `deleted_at` solo cuando esté justificado |
 | Contratos JSON | Propiedades `snake_case` |
 | Seguridad | RLS y mínimo privilegio |
