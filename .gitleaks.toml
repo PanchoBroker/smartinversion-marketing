@@ -1,0 +1,13 @@
+title = "SmartInversion gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Synthetic-only test fixture identifiers (D-06/D-07 synthetic-data-only policy). Not real secrets."
+paths = [
+  '''tests/fixtures/synthetic-baseline\.v1\.json''',
+]
+regexes = [
+  '''synthetic-delivery-\d{3}''',
+]
