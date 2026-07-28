@@ -1,3 +1,5 @@
+import { logInfo, logWarn } from "@/lib/observability/logger";
+
 export const HUMAN_ROLE_CODES = [
   "administrator",
   "commercial_owner",
@@ -80,10 +82,7 @@ export type AuthorizationDecision =
 
 const TEAM_ROLES: readonly HumanRoleCode[] = HUMAN_ROLE_CODES;
 
-const POLICY: Record<
-  AuthorizationAction,
-  readonly HumanRoleCode[]
-> = {
+const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
   "campaign.read": TEAM_ROLES,
   "campaign.write": ["campaign_manager"],
   "campaign.approve": ["commercial_owner"],
@@ -212,4 +211,44 @@ export function evaluateAuthorization(
     action: request.action,
     exercisedRole: request.exercisedRole,
   };
+}
+
+// S1-011: instrumented entry point for the S1-003 authorization service.
+// Not yet called by an application route (no protected business mutation
+// exists yet to call it from), but it establishes the required, tested
+// logging contract so authorization denials become measurable as soon as
+// a real caller is wired in. Deliberately logs action/role/reason only,
+// never the subject's profileId: actor identity belongs to the S1-006
+// business audit trail, not to technical logs (docs/minimum-observability.md
+// Section 19).
+export function evaluateAuthorizationWithLogging(
+  subject: AuthorizationSubject | null,
+  request: AuthorizationRequest,
+  correlationId: string,
+): AuthorizationDecision {
+  const decision = evaluateAuthorization(subject, request);
+
+  if (decision.allowed) {
+    logInfo({
+      event: "authz.decision.allowed",
+      correlationId,
+      context: {
+        action: decision.action,
+        exercised_role: decision.exercisedRole,
+      },
+    });
+
+    return decision;
+  }
+
+  logWarn({
+    event: "authz.decision.denied",
+    correlationId,
+    context: {
+      action: request.action,
+      reason: decision.reason,
+    },
+  });
+
+  return decision;
 }

@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
   redirect: vi.fn((path: string) => {
     throw new Error(`REDIRECT:${path}`);
   }),
+  logInfo: vi.fn(),
+  logWarn: vi.fn(),
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -13,6 +15,15 @@ vi.mock("@/lib/supabase/server", () => ({
 
 vi.mock("next/navigation", () => ({
   redirect: mocks.redirect,
+}));
+
+vi.mock("next/headers", () => ({
+  headers: vi.fn(async () => new Headers()),
+}));
+
+vi.mock("@/lib/observability/logger", () => ({
+  logInfo: mocks.logInfo,
+  logWarn: mocks.logWarn,
 }));
 
 import { logout } from "@/app/app/actions";
@@ -43,6 +54,12 @@ describe("authentication actions", () => {
     );
 
     expect(mocks.createClient).not.toHaveBeenCalled();
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "auth.login.denied",
+        context: { reason: "invalid_input" },
+      }),
+    );
   });
 
   it.each([
@@ -66,6 +83,12 @@ describe("authentication actions", () => {
     );
 
     expect(signInWithPassword).toHaveBeenCalledOnce();
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "auth.login.denied",
+        context: { reason: "invalid_credentials" },
+      }),
+    );
   });
 
   it("normalizes an invited user's email and grants app navigation", async () => {
@@ -92,6 +115,9 @@ describe("authentication actions", () => {
       email: "synthetic.user@example.test",
       password: " Synthetic-Auth9! ",
     });
+    expect(mocks.logInfo).toHaveBeenCalledWith(
+      expect.objectContaining({ event: "auth.login.success" }),
+    );
   });
 
   it("fails safely when authentication configuration is unavailable", async () => {
@@ -103,6 +129,13 @@ describe("authentication actions", () => {
       login(credentials()),
     ).rejects.toThrow(
       "REDIRECT:/login?error=service_unavailable",
+    );
+
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "auth.login.denied",
+        context: { reason: "service_unavailable" },
+      }),
     );
   });
 
@@ -125,6 +158,9 @@ describe("authentication actions", () => {
     expect(signOut).toHaveBeenCalledWith({
       scope: "global",
     });
+    expect(mocks.logInfo).toHaveBeenCalledWith(
+      expect.objectContaining({ event: "auth.logout.success" }),
+    );
   });
 
   it("clears the local session if global revocation fails", async () => {
@@ -153,5 +189,10 @@ describe("authentication actions", () => {
     expect(signOut).toHaveBeenNthCalledWith(2, {
       scope: "local",
     });
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "auth.logout.partial_failure",
+      }),
+    );
   });
 });

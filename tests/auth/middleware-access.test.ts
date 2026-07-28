@@ -6,11 +6,21 @@ import {
 } from "@/lib/supabase/middleware";
 import { middleware } from "@/middleware";
 
+const mocks = vi.hoisted(() => ({
+  logInfo: vi.fn(),
+  logWarn: vi.fn(),
+}));
+
 vi.mock("@/lib/supabase/middleware", () => ({
   updateSession: vi.fn(),
   copyResponseCookies: vi.fn(
     (_source: NextResponse, target: NextResponse) => target,
   ),
+}));
+
+vi.mock("@/lib/observability/logger", () => ({
+  logInfo: mocks.logInfo,
+  logWarn: mocks.logWarn,
 }));
 
 const updateSessionMock = vi.mocked(updateSession);
@@ -68,6 +78,15 @@ describe("authentication middleware", () => {
       response.headers.get("x-correlation-id"),
     ).toBeTruthy();
     expect(copyResponseCookiesMock).toHaveBeenCalledOnce();
+    expect(mocks.logInfo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "middleware.access.denied",
+        context: {
+          pathname,
+          reason: "authentication_required",
+        },
+      }),
+    );
   });
 
   it("fails closed when authentication is not configured", async () => {
@@ -93,6 +112,12 @@ describe("authentication middleware", () => {
     );
     expect(body.correlation_id).toBe(
       response.headers.get("x-correlation-id"),
+    );
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "middleware.access.unavailable",
+        context: { pathname: "/app" },
+      }),
     );
   });
 

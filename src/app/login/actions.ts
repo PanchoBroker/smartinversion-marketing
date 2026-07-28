@@ -1,6 +1,8 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { logInfo, logWarn } from "@/lib/observability/logger";
+import { currentCorrelationId } from "@/lib/observability/request-context";
 import { createClient } from "@/lib/supabase/server";
 
 const INVALID_CREDENTIALS_PATH =
@@ -20,6 +22,8 @@ function readRequiredField(
 }
 
 export async function login(formData: FormData) {
+  const correlationId = await currentCorrelationId();
+
   const email = readRequiredField(
     formData,
     "email",
@@ -31,6 +35,11 @@ export async function login(formData: FormData) {
       : "";
 
   if (!email || !password || email.length > 254) {
+    logWarn({
+      event: "auth.login.denied",
+      correlationId,
+      context: { reason: "invalid_input" },
+    });
     redirect(INVALID_CREDENTIALS_PATH);
   }
 
@@ -39,6 +48,11 @@ export async function login(formData: FormData) {
   try {
     supabase = await createClient();
   } catch {
+    logWarn({
+      event: "auth.login.denied",
+      correlationId,
+      context: { reason: "service_unavailable" },
+    });
     redirect(SERVICE_UNAVAILABLE_PATH);
   }
 
@@ -49,8 +63,18 @@ export async function login(formData: FormData) {
     });
 
   if (error) {
+    logWarn({
+      event: "auth.login.denied",
+      correlationId,
+      context: { reason: "invalid_credentials" },
+    });
     redirect(INVALID_CREDENTIALS_PATH);
   }
+
+  logInfo({
+    event: "auth.login.success",
+    correlationId,
+  });
 
   redirect("/app");
 }
