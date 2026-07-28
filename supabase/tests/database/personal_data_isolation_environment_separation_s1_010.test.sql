@@ -5,6 +5,13 @@
 -- S1-002 trigger validate_role_assignment() unconditionally rejects
 -- assigning a machine role such as system_worker to a human profile, so
 -- no such fixture can exist.
+--
+-- Row-count assertions below are scoped by id (not table-wide count(*))
+-- because supabase/seed.sql now loads permanent synthetic leads and
+-- lead_deliveries alongside the ones this test creates and tears down.
+-- The service_role fixture lead also uses a name that cannot collide with
+-- any seeded fixture name, so the final delete only ever targets a row
+-- this test itself created.
 
 begin;
 
@@ -100,15 +107,15 @@ select results_eq(
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000101';
 
 select results_eq(
-    $$select count(*) from restricted.leads$$,
+    $$select count(*) from restricted.leads where id = '30000000-0000-4000-8000-000000000101'$$,
     $$values (1::bigint)$$,
     'An administrator can read the seeded lead'
 );
 
 select results_eq(
-    $$select count(*) from restricted.lead_deliveries$$,
+    $$select count(*) from restricted.lead_deliveries where lead_id = '30000000-0000-4000-8000-000000000101'$$,
     $$values (0::bigint)$$,
-    'An administrator can query restricted.lead_deliveries (empty, none seeded yet)'
+    'An administrator can query restricted.lead_deliveries for the test lead (none created yet)'
 );
 
 select throws_ok(
@@ -132,7 +139,7 @@ select throws_ok(
 set local request.jwt.claim.sub = '00000000-0000-4000-8000-000000000102';
 
 select results_eq(
-    $$select count(*) from restricted.leads$$,
+    $$select count(*) from restricted.leads where id = '30000000-0000-4000-8000-000000000101'$$,
     $$values (1::bigint)$$,
     'A commercial liaison can read the seeded lead'
 );
@@ -150,12 +157,12 @@ select lives_ok(
 set local role service_role;
 
 select lives_ok(
-    $$insert into restricted.leads (name_original, name_normalized, email_original, email_normalized, phone_original, phone_normalized, income_range_code, income_mode, classification, status) values ('Synthetic Prospect 002','synthetic prospect 002','synthetic-prospect-002@example.invalid','synthetic-prospect-002@example.invalid','+10000000002','+10000000002','income_1500000_or_more','declared','prefiltered','new')$$,
+    $$insert into restricted.leads (name_original, name_normalized, email_original, email_normalized, phone_original, phone_normalized, income_range_code, income_mode, classification, status) values ('S1-010 RLS Delete Target','s1-010 rls delete target','s1-010-delete-target@example.invalid','s1-010-delete-target@example.invalid','+19999999999','+19999999999','income_1500000_or_more','declared','prefiltered','new')$$,
     'service_role can insert a new lead'
 );
 
 select matches(
-    (select code from restricted.leads where name_normalized = 'synthetic prospect 002'),
+    (select code from restricted.leads where name_normalized = 's1-010 rls delete target'),
     '^LED-[0-9]{4}-[0-9]{6}$',
     'The generated lead code matches the LED-<year>-<sequence> format'
 );
@@ -178,7 +185,7 @@ select lives_ok(
 );
 
 select lives_ok(
-    $$delete from restricted.leads where name_normalized = 'synthetic prospect 002'$$,
+    $$delete from restricted.leads where name_normalized = 's1-010 rls delete target'$$,
     'service_role can delete a lead'
 );
 
