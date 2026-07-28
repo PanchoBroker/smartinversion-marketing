@@ -4,6 +4,7 @@ import {
   CORRELATION_HEADER,
   resolveCorrelationId,
 } from "@/lib/observability/correlation";
+import { logInfo, logWarn } from "@/lib/observability/logger";
 import {
   copyResponseCookies,
   updateSession,
@@ -44,6 +45,12 @@ export async function middleware(request: NextRequest) {
   const isLoginRoute = pathname === "/login";
 
   if (isPrivateRoute && !session.configured) {
+    logWarn({
+      event: "middleware.access.unavailable",
+      correlationId,
+      context: { pathname },
+    });
+
     const unavailable = NextResponse.json(
       {
         error: "authentication_unavailable",
@@ -67,6 +74,15 @@ export async function middleware(request: NextRequest) {
   }
 
   if (isPrivateRoute && !session.authenticated) {
+    logInfo({
+      event: "middleware.access.denied",
+      correlationId,
+      context: {
+        pathname,
+        reason: "authentication_required",
+      },
+    });
+
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set(
       "reason",

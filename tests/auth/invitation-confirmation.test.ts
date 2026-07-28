@@ -3,8 +3,18 @@ import { NextRequest } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { GET } from "@/app/auth/confirm/route";
 
+const mocks = vi.hoisted(() => ({
+  logInfo: vi.fn(),
+  logWarn: vi.fn(),
+}));
+
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(),
+}));
+
+vi.mock("@/lib/observability/logger", () => ({
+  logInfo: mocks.logInfo,
+  logWarn: mocks.logWarn,
 }));
 
 const createClientMock = vi.mocked(createClient);
@@ -42,6 +52,12 @@ describe("invitation confirmation route", () => {
       "http://localhost:3000/login?error=invalid_invitation",
     );
     expect(createClientMock).not.toHaveBeenCalled();
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "auth.invitation.denied",
+        context: { reason: "invalid_request" },
+      }),
+    );
   });
 
   it("rejects an OTP type other than invite", async () => {
@@ -67,6 +83,12 @@ describe("invitation confirmation route", () => {
     expect(response.headers.get("location")).toBe(
       "http://localhost:3000/login?error=service_unavailable",
     );
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "auth.invitation.denied",
+        context: { reason: "service_unavailable" },
+      }),
+    );
   });
 
   it("rejects an invalid or expired invitation", async () => {
@@ -80,6 +102,12 @@ describe("invitation confirmation route", () => {
 
     expect(response.headers.get("location")).toBe(
       "http://localhost:3000/login?error=invalid_invitation",
+    );
+    expect(mocks.logWarn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "auth.invitation.denied",
+        context: { reason: "invalid_or_expired" },
+      }),
     );
   });
 
@@ -98,6 +126,11 @@ describe("invitation confirmation route", () => {
     });
     expect(response.headers.get("location")).toBe(
       "http://localhost:3000/auth/set-password",
+    );
+    expect(mocks.logInfo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "auth.invitation.confirmed",
+      }),
     );
   });
 

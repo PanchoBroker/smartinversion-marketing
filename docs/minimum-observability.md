@@ -697,3 +697,45 @@ Approval does not claim:
 - persisted business audit events.
 
 Those claims require their explicit future gates.
+
+
+## 27. S1-011 extension - authentication, authorization and password-reset events
+
+- **Work item:** S1-011
+- **Status:** Extends the S0-014 foundation to the authentication, authorization and password-reset paths that exist as of Sprint 1.
+- **Updated:** 2026-07-28
+
+### 27.1 New event catalog entries
+
+| Event | Level | Meaning |
+| --- | --- | --- |
+| auth.login.success | info | A credentialed session was established. |
+| auth.login.denied | warn | Login was rejected; `context.reason` is one of `invalid_input`, `service_unavailable`, `invalid_credentials`. |
+| auth.logout.success | info | Global session revocation succeeded. |
+| auth.logout.partial_failure | warn | Global revocation failed; the local session was cleared as a fallback. |
+| auth.logout.denied | warn | Logout could not run because server configuration was unavailable. |
+| auth.invitation.confirmed | info | An invitation token was verified. |
+| auth.invitation.denied | warn | Invitation confirmation was rejected; `context.reason` is one of `invalid_request`, `service_unavailable`, `invalid_or_expired`. |
+| auth.password.set | info | A new password was accepted. |
+| auth.password.denied | warn | Password update was rejected; `context.reason` is one of `mismatch`, `policy`, `service_unavailable`, `invalid_session`, `update_failed`. |
+| authz.decision.allowed | info | The central authorization service (S1-003) permitted an action. Context carries `action` and `exercised_role` only, never the subject's profile id. |
+| authz.decision.denied | warn | The central authorization service denied an action. Context carries `action` and `reason` only. |
+| middleware.access.denied | info | An anonymous request to a private route was redirected to login. Expected control flow, not a failure. |
+| middleware.access.unavailable | warn | A private route was requested while authentication configuration was unavailable. |
+
+Business rejection remains distinct from a technical error per Section 8: all denial events above use `info` or `warn`, never `error`.
+
+### 27.2 Authorization service instrumentation
+
+`evaluateAuthorizationWithLogging` (`src/lib/auth/authorization.ts`) wraps the pure `evaluateAuthorization` function from S1-003 with the logging contract above. As of S1-011, no application route calls the authorization service yet - no protected business mutation exists to call it from - so this wrapper is tested Foundation coverage, not an active signal. It must be adopted by the first route that performs a policy-gated mutation.
+
+### 27.3 Deferred: database reachability
+
+Section 12.4 and Section 24.1 anticipated that health would gain a safe database reachability check once the first domain migration existed. The `restricted` schema (S1-010) is now that first domain migration, but extending `/api/health` is not part of the `requirements-traceability.md` Section 10.11 acceptance list for S1-011 and was not implemented here. This remains an explicit open item, not a silently dropped one.
+
+### 27.4 Alert-condition inventory addition
+
+| Condition | Initial response |
+| --- | --- |
+| Repeated auth.login.denied for the same correlation ID or a tight time window | Review for credential-stuffing or brute-force behavior. |
+| Repeated authz.decision.denied bursts once a real caller exists | Review for a misconfigured role or a client bug retrying a denied action. |
