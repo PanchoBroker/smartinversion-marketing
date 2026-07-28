@@ -6,7 +6,7 @@
 - **Status:** Under Gate G0 review
 - **Owner:** Smartinversion product owner
 - **Updated:** 2026-07-20
-- **Purpose:** Record the status, owner, rationale, evidence and blocking effect of decisions D-01 through D-08.
+- **Purpose:** Record the status, owner, rationale, evidence and blocking effect of decisions D-01 through D-10.
 
 ## 1. Decision states
 
@@ -31,6 +31,7 @@
 | D-07 | Lead retention | Conditioned | Product owner and legal/privacy owner | Final approval before any real lead is stored |
 | D-08 | MC-REG-001 pilot scope | Provisional | Product owner | Exact scope before Phase 3 campaign configuration |
 | D-09 | Human codes and lifecycle-state representation | Decided | Product owner | None for S1-008 |
+| D-10 | Restricted-data physical isolation (schema separation) | Decided | Product and technical owners | Lead-table migrations depend on this model |
 
 ## 3. D-01 — Hosting account and plan
 
@@ -246,7 +247,50 @@ Approved by the product owner on 2026-07-23 during S1-008 implementation.
 - `docs/core-schema.md`;
 - S1-008 database migration and pgTAP tests.
 
-## 12. Gate G0 interpretation required
+## 12. D-10 — Restricted-data physical isolation
+
+### Decision
+
+A dedicated PostgreSQL schema, `restricted`, is approved as the physical isolation boundary for tables that hold full personal contact data. `restricted` is excluded from the Supabase Data API exposed-schema configuration, so it is unreachable through PostgREST or GraphQL by the `anon` or `authenticated` API roles regardless of RLS policy outcome.
+
+The following tables belong to the `restricted` schema: `leads`, `lead_consents`, `lead_attribution`, `lead_deliveries`, `lead_status_events`, `form_submissions`.
+
+`form_sessions` remains in the public application schema; it carries attribution and anti-abuse evidence rather than full contact data.
+
+`profiles` remains in the public application schema under its existing S1-002 design; it is classified as internal personal data (name and account identity), not restricted personal data.
+
+Row Level Security remains mandatory on every table inside `restricted`, as a second independent control layer in addition to schema exclusion from the Data API.
+
+All application access to `restricted` tables must go through server-side code (Next.js Server Actions and Route Handlers executed on Cloudflare Workers) using the central authorization context established by S1-003. No table or view inside `restricted` may be queried directly from browser code.
+
+Full contact fields (name, email, telephone) must reach a client only through server-side field shaping or masked views, following the access levels already defined in `docs/access-control-matrix.md` §14 (Leads and PII matrix). Raw contact fields are never serialized to a client outside an explicitly authorized access path.
+
+### Rationale
+
+`docs/access-control-matrix.md` §14.3 already anticipated this mechanism ("Restricted schema not exposed through the Data API... Separate PII table if selected during migration design") and required the final physical approach to be approved before any lead-table migration. `docs/core-schema.md` explicitly deferred the `leads` domain out of the S1-008 physical schema for the same reason. Excluding the schema from the Data API removes a class of accidental anonymous exposure that RLS alone cannot fully close, since RLS governs rows, not schema-level reachability.
+
+### Scope
+
+This decision resolves the schema-separation question referenced as open in D-09 §Scope. It governs the physical model only; it does not authorize real leads, real prospect data, retention periods or production capture, which remain governed by D-06 and D-07.
+
+### Evidence
+
+- `docs/access-control-matrix.md` §14.3
+- `docs/core-schema.md` §12 (PII inventory) and the S1-008 scope note
+- `docs/synthetic-data-strategy.md`
+- S1-010 migration and pgTAP tests (pending)
+
+### Approval
+
+Approved by the product owner on 2026-07-27 at the start of S1-010.
+
+### Affected implementation
+
+- `docs/core-schema.md` (scope note to be updated once migrations land)
+- `docs/access-control-matrix.md` (already anticipates this model; no change required)
+- S1-010 database migration (pending)
+
+## 13. Gate G0 interpretation required
 
 Gate G0 must not silently treat D-06 or D-07 as complete.
 
@@ -264,7 +308,7 @@ Under every outcome:
 - no draft consent wording may be presented as legally approved;
 - no retention period may be inferred.
 
-## 13. Change control
+## 14. Change control
 
 A decision change must record:
 
