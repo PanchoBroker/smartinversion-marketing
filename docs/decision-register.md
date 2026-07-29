@@ -32,6 +32,7 @@
 | D-08 | MC-REG-001 pilot scope | Provisional | Product owner | Exact scope before Phase 3 campaign configuration |
 | D-09 | Human codes and lifecycle-state representation | Decided | Product owner | None for S1-008 |
 | D-10 | Restricted-data physical isolation (schema separation) | Decided | Product and technical owners | Lead-table migrations depend on this model |
+| D-11 | Phase 2/Phase 3 scope boundary (Evidencia y claims vs. Campañas y contenido) | Decided | Product owner | None for Sprint 2 |
 
 ## 3. D-01 — Hosting account and plan
 
@@ -290,7 +291,38 @@ Approved by the product owner on 2026-07-27 at the start of S1-010.
 - `docs/access-control-matrix.md` (already anticipates this model; no change required)
 - S1-010 database migration (pending)
 
-## 13. Gate G0 interpretation required
+## 13. D-11 — Phase 2/Phase 3 scope boundary (Evidencia y claims vs. Campañas y contenido)
+
+### Decision
+
+The Plan Maestro de Implementación v1.0 is authoritative for phase and sprint sequencing, gates and dependency order. Phase 2, "Evidencia y claims" (Gate G2), remains its own standalone phase with its own exit criterion, separate from Phase 3, "Campañas y contenido" (Gate G3).
+
+This resolves a direct conflict between two closed v1.0 source documents: the Especificación Técnica v1.0 §22 ("Secuencia de implementación") groups Oportunidades, Evidencia, Claims and Campañas into a single "Fase 3: Núcleo de campaña," while the Plan Maestro v1.0 §§5-7 defines "Fase 2 — Evidencia y claims" as a standalone phase preceding "Fase 3 — Campañas y contenido," each with its own gate (G2, G3).
+
+### Rationale
+
+The Plan Maestro is the implementation-sequencing document; Sprint 1's own numbering (`S1-xxx` = Fase 1, closed under Gate G1 per `docs/g1-gate-review.md`) already followed the Plan Maestro's phase model, not the Especificación Técnica's grouping. The Plan Maestro also defines an explicit, independently verifiable Gate G2 exit criterion ("un claim puede rastrearse hasta su fuente y deja de ser publicable al vencer o bloquearse") that the Especificación Técnica's broader grouping does not separately address. Keeping G2 as a standalone checkpoint preserves an evidence/claims-specific verification gate before campaign work begins to depend on it.
+
+### Scope
+
+This decision governs Sprint 2 backlog sequencing and phase/gate boundaries only (`docs/requirements-traceability-f2.md`). It does not reopen or change the underlying functional or technical requirements (`FR-EVD-*`, `FR-CLM-*`, `FR-CAM-*`) themselves, and it does not authorize Sprint 3 planning ahead of Gate G2.
+
+### Evidence
+
+- Plan Maestro de Implementación v1.0, §5 "Mapa de fases", §7 "Dependencias y camino crítico", §15 "Puertas de control" (G2 exit criterion)
+- Especificación Técnica v1.0, §22 "Secuencia de implementación" (the conflicting grouping; superseded for phase-sequencing purposes by this decision, its technical content elsewhere remains valid)
+- `docs/g1-gate-review.md` (Sprint 1 = Fase 1 precedent, following the Plan Maestro's phase model)
+
+### Approval
+
+Approved by the product owner on 2026-07-29 during Sprint 2 planning.
+
+### Affected implementation
+
+- `docs/requirements-traceability-f2.md` (Sprint 2 backlog, built on this phase boundary)
+- Future Sprint 3 planning, once Gate G2 is reviewed
+
+## 14. Gate G0 interpretation required
 
 Gate G0 must not silently treat D-06 or D-07 as complete.
 
@@ -308,7 +340,7 @@ Under every outcome:
 - no draft consent wording may be presented as legally approved;
 - no retention period may be inferred.
 
-## 14. Change control
+## 15. Change control
 
 A decision change must record:
 
