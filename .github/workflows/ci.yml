@@ -44,3 +44,40 @@ jobs:
         run: npm test
       - name: Build Cloudflare Worker
         run: npm run build:worker
+
+  database:
+    name: Migration and schema/RLS checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start local Supabase stack (applies every migration and the synthetic seed to a clean database)
+        run: supabase start
+
+      - name: Run schema and RLS pgTAP suite
+        run: supabase test db
+
+  security:
+    name: Secret scanning
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo" \
+            zricethezav/gitleaks:latest detect \
+            --source=/repo --config=/repo/.gitleaks.toml --redact -v
