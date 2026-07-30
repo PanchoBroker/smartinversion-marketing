@@ -45,8 +45,8 @@ select ok(
     'Ordinary deletion of claims is not granted to any role'
 );
 select ok(
-    not has_table_privilege('authenticated', 'public.claims', 'SELECT'),
-    'Authenticated clients have no direct claims access yet (Phase 2 route scope)'
+    has_table_privilege('authenticated', 'public.claims', 'SELECT'),
+    'Authenticated clients can now reach claims, RLS-guarded (S2-009 private API surface)'
 );
 select ok(
     not has_table_privilege('service_role', 'public.claim_sources', 'DELETE'),

@@ -174,21 +174,29 @@ describe("evaluateAuthorization", () => {
     });
   });
 
-  it.each([
-    ["evidence.approve", "investment_analyst"],
-    ["lead.export", "commercial_liaison"],
-  ])(
-    "keeps %s denied until its additional permission is defined",
-    (action, exercisedRole) => {
-      expect(
-        evaluateAuthorization(subject([exercisedRole]), {
-          action,
-          exercisedRole,
-        }),
-      ).toEqual({
-        allowed: false,
-        reason: "role_not_permitted",
-      });
-    },
-  );
+  it("keeps lead.export denied until its additional permission and audit contract are defined", () => {
+    expect(
+      evaluateAuthorization(subject(["commercial_liaison"]), {
+        action: "lead.export",
+        exercisedRole: "commercial_liaison",
+      }),
+    ).toEqual({
+      allowed: false,
+      reason: "role_not_permitted",
+    });
+  });
+
+  it("allows evidence.approve for investment_analyst -- the additional permission S2-009 defines", () => {
+    expect(
+      evaluateAuthorization(subject(["investment_analyst"]), {
+        action: "evidence.approve",
+        exercisedRole: "investment_analyst",
+      }),
+    ).toEqual({
+      allowed: true,
+      profileId: "00000000-0000-4000-8000-000000000001",
+      action: "evidence.approve",
+      exercisedRole: "investment_analyst",
+    });
+  });
 });
