@@ -35,8 +35,8 @@ select ok(
     'Ordinary deletion of sources is not granted to any role'
 );
 select ok(
-    not has_table_privilege('authenticated', 'public.sources', 'SELECT'),
-    'Authenticated clients have no direct sources access yet (Phase 2 route scope)'
+    has_table_privilege('authenticated', 'public.sources', 'SELECT'),
+    'Authenticated clients can now reach sources, RLS-guarded (S2-009 private API surface)'
 );
 
 -- -------------------------------------------------------------------------

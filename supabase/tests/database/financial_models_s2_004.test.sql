@@ -72,12 +72,12 @@ select ok(
     'Ordinary deletion of financial_model_scenarios is not granted to any role'
 );
 select ok(
-    not has_table_privilege('authenticated', 'public.financial_models', 'SELECT'),
-    'Authenticated clients have no direct financial_models access (confidential by default)'
+    has_table_privilege('authenticated', 'public.financial_models', 'SELECT'),
+    'Authenticated clients can now reach financial_models, RLS-guarded (S2-009 private API surface)'
 );
 select ok(
-    not has_table_privilege('authenticated', 'public.financial_model_scenarios', 'SELECT'),
-    'Authenticated clients have no direct financial_model_scenarios access (confidential by default)'
+    has_table_privilege('authenticated', 'public.financial_model_scenarios', 'SELECT'),
+    'Authenticated clients can now reach financial_model_scenarios, RLS-guarded (S2-009 private API surface)'
 );
 
 -- -------------------------------------------------------------------------

@@ -23,6 +23,7 @@ export const AUTHORIZATION_ACTIONS = [
   "evidence.read",
   "evidence.write",
   "evidence.approve",
+  "evidence.transition",
   "content.read",
   "content.write",
   "content.approve",
@@ -94,9 +95,16 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
   ],
   "evidence.write": ["investment_analyst"],
 
-  // Approval requires an additional explicit authorization mechanism
-  // that has not yet been defined.
-  "evidence.approve": [],
+  // S2-009 defines the explicit approval mechanism this entry was
+  // waiting for: command-style endpoints backed by the S1-007 engine's
+  // active-role validation and the S2-006/S2-007/S2-008 database gates.
+  // The investment analyst is the only role with A on evidence/claims
+  // in docs/access-control-matrix.md Section 9.
+  "evidence.approve": ["investment_analyst"],
+
+  // Explicit non-approval lifecycle transitions (the matrix's T
+  // operation), e.g. the block command endpoints from S2-009.
+  "evidence.transition": ["investment_analyst"],
 
   "content.read": TEAM_ROLES,
   "content.write": ["creative_owner", "editor"],
@@ -214,10 +222,8 @@ export function evaluateAuthorization(
 }
 
 // S1-011: instrumented entry point for the S1-003 authorization service.
-// Not yet called by an application route (no protected business mutation
-// exists yet to call it from), but it establishes the required, tested
-// logging contract so authorization denials become measurable as soon as
-// a real caller is wired in. Deliberately logs action/role/reason only,
+// Since S2-009 this is called by every private /api/v1 route before any
+// business data is touched. Deliberately logs action/role/reason only,
 // never the subject's profileId: actor identity belongs to the S1-006
 // business audit trail, not to technical logs (docs/minimum-observability.md
 // Section 19).

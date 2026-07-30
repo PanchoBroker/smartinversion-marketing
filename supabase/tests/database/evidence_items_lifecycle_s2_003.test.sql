@@ -43,8 +43,8 @@ select ok(
     'Ordinary deletion of evidence_items is not granted to any role'
 );
 select ok(
-    not has_table_privilege('authenticated', 'public.evidence_items', 'SELECT'),
-    'Authenticated clients have no direct evidence_items access yet (Phase 2 route scope)'
+    has_table_privilege('authenticated', 'public.evidence_items', 'SELECT'),
+    'Authenticated clients can now reach evidence_items, RLS-guarded (S2-009 private API surface)'
 );
 
 -- -------------------------------------------------------------------------

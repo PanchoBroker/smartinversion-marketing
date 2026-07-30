@@ -45,8 +45,8 @@ select ok(
     'Ordinary deletion of investment_theses is not granted to any role'
 );
 select ok(
-    not has_table_privilege('authenticated', 'public.investment_theses', 'SELECT'),
-    'Authenticated clients have no direct investment_theses access yet (Phase 2 route scope)'
+    has_table_privilege('authenticated', 'public.investment_theses', 'SELECT'),
+    'Authenticated clients can now reach investment_theses, RLS-guarded (S2-009 private API surface)'
 );
 select ok(
     not has_table_privilege('service_role', 'public.investment_thesis_evidence_items', 'DELETE'),
