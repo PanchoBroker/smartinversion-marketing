@@ -28,7 +28,7 @@ import { POST as triggerExpire } from "@/app/api/v1/evidence/expire/route";
 // denied" (docs/access-control-matrix.md Section 27.5) has no other
 // automated proof anywhere in the suite.
 
-const CONFIGURED_SECRET = "s2-010-fixture-secret";
+const EXPECTED_HEADER_VALUE = "s2010-fixture-credential-value";
 
 function expireRequest(
   headers: Record<string, string> = {},
@@ -61,7 +61,7 @@ describe("jobs authorization (/evidence/expire, shared secret only)", () => {
   });
 
   it("denies a request without the correct shared secret, logging the denial", async () => {
-    mocks.resolveJobsSecret.mockResolvedValue(CONFIGURED_SECRET);
+    mocks.resolveJobsSecret.mockResolvedValue(EXPECTED_HEADER_VALUE);
 
     const response = await triggerExpire(
       expireRequest({ "x-jobs-secret": "wrong-secret" }),
@@ -78,7 +78,7 @@ describe("jobs authorization (/evidence/expire, shared secret only)", () => {
   });
 
   it("denies a request with no secret header at all, the same as an ordinary authenticated session would get", async () => {
-    mocks.resolveJobsSecret.mockResolvedValue(CONFIGURED_SECRET);
+    mocks.resolveJobsSecret.mockResolvedValue(EXPECTED_HEADER_VALUE);
 
     const response = await triggerExpire(expireRequest());
 
@@ -87,7 +87,7 @@ describe("jobs authorization (/evidence/expire, shared secret only)", () => {
   });
 
   it("runs the alerting job with the default batch limit when the correct secret is presented", async () => {
-    mocks.resolveJobsSecret.mockResolvedValue(CONFIGURED_SECRET);
+    mocks.resolveJobsSecret.mockResolvedValue(EXPECTED_HEADER_VALUE);
     const rpc = vi.fn(async () => ({
       data: { notified: 0 },
       error: null,
@@ -95,7 +95,7 @@ describe("jobs authorization (/evidence/expire, shared secret only)", () => {
     mocks.createServiceRoleClient.mockResolvedValue({ rpc });
 
     const response = await triggerExpire(
-      expireRequest({ "x-jobs-secret": CONFIGURED_SECRET }),
+      expireRequest({ "x-jobs-secret": EXPECTED_HEADER_VALUE }),
     );
 
     expect(response.status).toBe(200);
@@ -115,7 +115,7 @@ describe("jobs authorization (/evidence/expire, shared secret only)", () => {
   });
 
   it("honors an explicit batch_limit within range", async () => {
-    mocks.resolveJobsSecret.mockResolvedValue(CONFIGURED_SECRET);
+    mocks.resolveJobsSecret.mockResolvedValue(EXPECTED_HEADER_VALUE);
     const rpc = vi.fn(async () => ({
       data: { notified: 3 },
       error: null,
@@ -124,7 +124,7 @@ describe("jobs authorization (/evidence/expire, shared secret only)", () => {
 
     const response = await triggerExpire(
       expireRequest(
-        { "x-jobs-secret": CONFIGURED_SECRET },
+        { "x-jobs-secret": EXPECTED_HEADER_VALUE },
         { batch_limit: 250 },
       ),
     );
@@ -137,13 +137,13 @@ describe("jobs authorization (/evidence/expire, shared secret only)", () => {
   });
 
   it("rejects a batch_limit outside the allowed range without calling the job", async () => {
-    mocks.resolveJobsSecret.mockResolvedValue(CONFIGURED_SECRET);
+    mocks.resolveJobsSecret.mockResolvedValue(EXPECTED_HEADER_VALUE);
     const rpc = vi.fn();
     mocks.createServiceRoleClient.mockResolvedValue({ rpc });
 
     const response = await triggerExpire(
       expireRequest(
-        { "x-jobs-secret": CONFIGURED_SECRET },
+        { "x-jobs-secret": EXPECTED_HEADER_VALUE },
         { batch_limit: 0 },
       ),
     );
@@ -153,18 +153,18 @@ describe("jobs authorization (/evidence/expire, shared secret only)", () => {
   });
 
   it("fails closed with 503 when the service-role client is unavailable", async () => {
-    mocks.resolveJobsSecret.mockResolvedValue(CONFIGURED_SECRET);
+    mocks.resolveJobsSecret.mockResolvedValue(EXPECTED_HEADER_VALUE);
     mocks.createServiceRoleClient.mockResolvedValue(null);
 
     const response = await triggerExpire(
-      expireRequest({ "x-jobs-secret": CONFIGURED_SECRET }),
+      expireRequest({ "x-jobs-secret": EXPECTED_HEADER_VALUE }),
     );
 
     expect(response.status).toBe(503);
   });
 
   it("reports a job failure as 400 without leaking database internals beyond the message", async () => {
-    mocks.resolveJobsSecret.mockResolvedValue(CONFIGURED_SECRET);
+    mocks.resolveJobsSecret.mockResolvedValue(EXPECTED_HEADER_VALUE);
     const rpc = vi.fn(async () => ({
       data: null,
       error: { message: "lock_acquired:false" },
@@ -172,7 +172,7 @@ describe("jobs authorization (/evidence/expire, shared secret only)", () => {
     mocks.createServiceRoleClient.mockResolvedValue({ rpc });
 
     const response = await triggerExpire(
-      expireRequest({ "x-jobs-secret": CONFIGURED_SECRET }),
+      expireRequest({ "x-jobs-secret": EXPECTED_HEADER_VALUE }),
     );
 
     expect(response.status).toBe(400);

@@ -8,6 +8,7 @@ description = "Synthetic-only test fixture identifiers (D-06/D-07 synthetic-data
 paths = [
   '''tests/fixtures/synthetic-baseline\.v1\.json''',
   '''tests/observability/sanitize\.test\.ts''',
+  '''tests/api/jobs-authorization\.test\.ts''',
 ]
 regexes = [
   '''synthetic-delivery-\d{3}''',
