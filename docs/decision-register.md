@@ -5,8 +5,8 @@
 - **Work item:** S0-019 / Gate G0 review
 - **Status:** Under Gate G0 review
 - **Owner:** Smartinversion product owner
-- **Updated:** 2026-07-30 (S2-011: D-12 added at Gate G2 review)
-- **Purpose:** Record the status, owner, rationale, evidence and blocking effect of decisions D-01 through D-12.
+- **Updated:** 2026-07-30 (Sprint 3 planning: D-13 added)
+- **Purpose:** Record the status, owner, rationale, evidence and blocking effect of decisions D-01 through D-13.
 
 ## 1. Decision states
 
@@ -34,6 +34,7 @@
 | D-10 | Restricted-data physical isolation (schema separation) | Decided | Product and technical owners | Lead-table migrations depend on this model |
 | D-11 | Phase 2/Phase 3 scope boundary (Evidencia y claims vs. Campañas y contenido) | Decided | Product owner | None for Sprint 2 |
 | D-12 | `CLM-` claim-code prefix ratification | Decided | Product owner | None for Sprint 2/Gate G2 |
+| D-13 | Phase 3/Phase 4 scope boundary within "contenido" (backlog/definition vs. production/QA) | Decided | Product owner | None for Sprint 3 |
 
 ## 3. D-01 — Hosting account and plan
 
@@ -353,7 +354,39 @@ Approved by the product owner on 2026-07-30 during the Gate G2 review (S2-011).
 - `docs/data-conventions.md` (§5's approved-examples list may be updated to name `CLM-` explicitly at a future documentation pass; not required for this ratification to take effect)
 - No code or migration change required -- S2-006's existing generator already implements this decision
 
-## 15. Gate G0 interpretation required
+## 15. D-13 — Phase 3 scope boundary within "contenido" (content backlog/definition vs. content production/QA)
+
+### Decision
+
+Within Phase 3 ("Campañas y contenido"), the "contenido" scope is limited to the content backlog and definition layer -- `content_items`, `content_versions` and `content_claims` -- matching `docs/core-schema.md` §6.3's "Campaign and content" grouping. It excludes generative production and quality assurance -- `scenes`, `generation_attempts`, `assets`, `asset_links`, `qa_reviews`, `qa_defects` and `approvals` -- which remain Phase 4 ("Producción/QA") scope, matching `docs/core-schema.md` §6.4's separate "Production and quality" grouping.
+
+### Rationale
+
+This resolves a conflict of the same kind D-11 already resolved, one level finer. Especificación Técnica v1.0 §22 ("Secuencia de implementación") groups all content-related work -- from `content_pieces` through scenes, generation, assets and QA -- into a single "Fase 4: Producción," distinct from its own "Fase 3: Núcleo de campaña" (which names only Oportunidades, Evidencia, Claims y Campañas, not contenido at all). §24's own requirement-to-component traceability table corroborates the same split from a different angle: it maps "CAM/CNT" to "Servicios de campaña y contenido," separately from "GEN/AST" to "Production workspace + Storage" -- i.e., even the Técnica document's own traceability table treats content's backlog/definition layer (CNT) as adjacent to campaigns, and its generative/asset layer (GEN/AST) as a distinct concern, despite bundling both into one phase in §22.
+
+D-11 already established that the Plan Maestro's finer phase model is authoritative over the Especificación Técnica's coarser §22 grouping for phase-sequencing purposes, but scoped that ruling to Sprint 2 planning only ("This decision governs Sprint 2 backlog sequencing and phase/gate boundaries only... it does not authorize Sprint 3 planning ahead of Gate G2"). This decision extends the same principle, now that Gate G2 has closed, to the Sprint 3 planning boundary: the Plan Maestro's Phase 3 ("Campañas y contenido") corresponds to the content backlog/definition layer, while the Plan Maestro's own Phase 4 ("Producción/QA") retains the generative/QA layer -- a reading independently corroborated by `docs/core-schema.md`'s own approved §6.3/§6.4 split, authored before this decision and grouping the same tables the same way.
+
+### Scope
+
+This decision governs Sprint 3 backlog sequencing and the Phase 3/Phase 4 boundary only (`docs/requirements-traceability-f3.md`). It does not reopen or change the underlying functional or technical requirements (`FR-CNT-*`) themselves, and it does not authorize Phase 4 planning ahead of Gate G3. `content_item`'s complete lifecycle vocabulary (`docs/core-schema.md` §11.5) is registered in full during Sprint 3 regardless of this boundary, per `docs/requirements-traceability-f3.md` §8.2 -- this decision governs which transitions receive a real application gate now, not which states exist in the registered machine.
+
+### Evidence
+
+- Especificación Técnica v1.0, §22 "Secuencia de implementación", §24 "Trazabilidad de requisitos"
+- `docs/core-schema.md` §6.3 "Campaign and content", §6.4 "Production and quality", §8.4-8.5, §11.5
+- `docs/decision-register.md` D-11 (precedent and its own Sprint-2-only scope limitation)
+- `docs/g2-gate-review.md` (Gate G2 closure, the precondition for this decision's own scope statement)
+
+### Approval
+
+Approved by the product owner on 2026-07-30 during Sprint 3 planning.
+
+### Affected implementation
+
+- `docs/requirements-traceability-f3.md` (Sprint 3 backlog, built on this phase boundary)
+- Future Phase 4 planning, once Gate G3 is reviewed
+
+## 16. Gate G0 interpretation required
 
 Gate G0 must not silently treat D-06 or D-07 as complete.
 
@@ -371,7 +404,7 @@ Under every outcome:
 - no draft consent wording may be presented as legally approved;
 - no retention period may be inferred.
 
-## 16. Change control
+## 17. Change control
 
 A decision change must record:
 
