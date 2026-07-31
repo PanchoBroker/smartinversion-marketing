@@ -1,8 +1,8 @@
 -- S3-002: campaign briefs (`campaign_briefs`) versioning and hypotheses
 -- (`hypotheses`) schema, code generation and least-privilege access.
 --
--- Covers docs/requirements-traceability-f3.md §10.2 acceptance: a campaign
--- brief records every §7.1 field group and preserves prior versions rather
+-- Covers docs/requirements-traceability-f3.md Section 10.2 acceptance: a campaign
+-- brief records every Section 7.1 field group and preserves prior versions rather
 -- than overwriting them; a hypothesis records its variable, expected
 -- result, metric reference and measurement period, and belongs to exactly
 -- one campaign; hypotheses.metric_definition_id has no foreign key yet;
@@ -10,7 +10,7 @@
 
 begin;
 
-select plan(31);
+select plan(29);
 
 -- -------------------------------------------------------------------------
 -- Structural contract
@@ -38,14 +38,6 @@ select ok(
 select ok(
     not has_table_privilege('service_role', 'public.hypotheses', 'DELETE'),
     'Ordinary deletion of hypotheses is not granted to any role'
-);
-select ok(
-    not has_table_privilege('authenticated', 'public.campaign_briefs', 'SELECT'),
-    'Authenticated clients have no direct campaign_briefs access yet (Phase 3 route scope)'
-);
-select ok(
-    not has_table_privilege('authenticated', 'public.hypotheses', 'SELECT'),
-    'Authenticated clients have no direct hypotheses access yet (Phase 3 route scope)'
 );
 
 -- -------------------------------------------------------------------------

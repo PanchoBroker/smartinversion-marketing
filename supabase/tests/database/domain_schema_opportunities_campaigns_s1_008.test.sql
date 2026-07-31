@@ -2,13 +2,13 @@
 -- opportunity/campaign lifecycle-machine wiring.
 --
 -- Covers the S1-008 acceptance bullets (docs/requirements-traceability.md
--- §10.8): UUID primary keys, unique human codes, UTC-compatible timestamp
+-- Section 10.8): UUID primary keys, unique human codes, UTC-compatible timestamp
 -- types, lifecycle fields per docs/data-conventions.md, restricted
 -- ordinary deletion, and tested foreign key / uniqueness constraints.
 
 begin;
 
-select plan(33);
+select plan(31);
 
 -- -------------------------------------------------------------------------
 -- Structural contract
@@ -33,7 +33,7 @@ select col_type_is(
 );
 
 -- -------------------------------------------------------------------------
--- Restricted ordinary deletion and least-privilege direct access
+-- Restricted ordinary deletion
 -- -------------------------------------------------------------------------
 
 select ok(
@@ -43,14 +43,6 @@ select ok(
 select ok(
     not has_table_privilege('service_role', 'public.campaigns', 'DELETE'),
     'Ordinary deletion of campaigns is not granted to any role'
-);
-select ok(
-    not has_table_privilege('authenticated', 'public.opportunities', 'SELECT'),
-    'Authenticated clients have no direct opportunities access yet (Phase 2 scope)'
-);
-select ok(
-    not has_table_privilege('authenticated', 'public.campaigns', 'SELECT'),
-    'Authenticated clients have no direct campaigns access yet (Phase 2 scope)'
 );
 
 -- -------------------------------------------------------------------------

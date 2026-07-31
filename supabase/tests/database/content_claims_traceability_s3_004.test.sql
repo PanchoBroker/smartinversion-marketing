@@ -2,7 +2,7 @@
 -- approved claim, and every claim's usage is traceable forward to every
 -- content version that used it.
 --
--- Covers docs/requirements-traceability-f3.md §10.4 acceptance:
+-- Covers docs/requirements-traceability-f3.md Section 10.4 acceptance:
 -- content_claims links a content_version to a claim, with a composite key
 -- preventing duplicate links; only a currently approved, non-expired,
 -- non-blocked claim can be linked; from a claim, its content_claims rows
@@ -11,7 +11,7 @@
 
 begin;
 
-select plan(21);
+select plan(20);
 
 -- -------------------------------------------------------------------------
 -- Structural contract
@@ -32,10 +32,6 @@ select col_is_pk(
 select ok(
     not has_table_privilege('service_role', 'public.content_claims', 'DELETE'),
     'Ordinary deletion of content_claims is not granted to any role'
-);
-select ok(
-    not has_table_privilege('authenticated', 'public.content_claims', 'SELECT'),
-    'Authenticated clients have no direct content_claims access yet (Phase 3 route scope)'
 );
 
 -- -------------------------------------------------------------------------

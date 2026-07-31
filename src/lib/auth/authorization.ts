@@ -17,9 +17,20 @@ export const HUMAN_ROLE_CODES = [
 export type HumanRoleCode = (typeof HUMAN_ROLE_CODES)[number];
 
 export const AUTHORIZATION_ACTIONS = [
+  "opportunity.read",
+  "opportunity.write",
+  "opportunity.transition",
+  "opportunity.convert",
+  "opportunity_project.read",
+  "opportunity_project.write",
   "campaign.read",
   "campaign.write",
   "campaign.approve",
+  "campaign.transition",
+  "campaign_brief.read",
+  "campaign_brief.write",
+  "hypothesis.read",
+  "hypothesis.write",
   "evidence.read",
   "evidence.write",
   "evidence.approve",
@@ -27,6 +38,11 @@ export const AUTHORIZATION_ACTIONS = [
   "content.read",
   "content.write",
   "content.approve",
+  "content.transition",
+  "content_version.read",
+  "content_version.write",
+  "content_claim.read",
+  "content_claim.write",
   "publication.read",
   "publication.write",
   "publication.approve",
@@ -84,9 +100,53 @@ export type AuthorizationDecision =
 const TEAM_ROLES: readonly HumanRoleCode[] = HUMAN_ROLE_CODES;
 
 const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
+  // S3-007: opportunities. docs/access-control-matrix.md Section 9 --
+  // commercial_owner holds the unqualified L R C U T cell; campaign_manager
+  // and administrator hold unqualified read; the finer "Related R" for
+  // other roles and investment_analyst's qualified "L R U evidence-needs
+  // only" are RLS-deferred (see the S3-007 migration header) and are not
+  // widened here either -- this coarse layer stays the same shape as the
+  // rows it can actually see.
+  "opportunity.read": TEAM_ROLES,
+  "opportunity.write": ["commercial_owner"],
+  // Ordinary lifecycle transitions (pause/discard/researching/ready, plus
+  // the administrator-only restoration edge) -- the S1-007 engine's own
+  // required_role_code allowlist is the precise gate; this coarse layer
+  // only needs to admit the roles that hold ANY edge on the machine.
+  "opportunity.transition": ["commercial_owner", "administrator"],
+  // Atomic conversion to a campaign (FR-CAM-001) -- commercial_owner only,
+  // matching the ready -> converted edge's required role exactly.
+  "opportunity.convert": ["commercial_owner"],
+
+  // S3-007: opportunity_projects. docs/access-control-matrix.md Section 9
+  // -- every named role's cell is unqualified.
+  "opportunity_project.read": TEAM_ROLES,
+  "opportunity_project.write": ["commercial_owner", "investment_analyst"],
+
   "campaign.read": TEAM_ROLES,
-  "campaign.write": ["campaign_manager"],
+  // S3-007: campaigns' commercial_owner cell (L R C U T A) is unqualified,
+  // same as campaign_manager's (L R C U T) -- both may create/update.
+  "campaign.write": ["campaign_manager", "commercial_owner"],
   "campaign.approve": ["commercial_owner"],
+  // Explicit non-approval lifecycle transitions (pause/close) -- the
+  // matrix's T operation, shared by commercial_owner and campaign_manager.
+  "campaign.transition": ["campaign_manager", "commercial_owner"],
+
+  // S3-007: campaign_briefs. docs/access-control-matrix.md Section 10 --
+  // campaign_manager holds the unqualified L R C U T cell. commercial_owner
+  // (L R A) and approver (L R) get read; approval is a future gate, not a
+  // write path here.
+  "campaign_brief.read": TEAM_ROLES,
+  "campaign_brief.write": ["campaign_manager"],
+
+  // S3-007: hypotheses. docs/access-control-matrix.md Section 10 --
+  // campaign_manager holds the unqualified L R C U T cell; commercial_owner
+  // is read-only (L R, no C/U) -- kept as its own action rather than
+  // reused from campaign.write specifically so this coarse layer does not
+  // over-admit commercial_owner to a table it cannot actually write (RLS
+  // has no insert/update policy for commercial_owner on hypotheses either).
+  "hypothesis.read": TEAM_ROLES,
+  "hypothesis.write": ["campaign_manager"],
 
   "evidence.read": [
     "investment_analyst",
@@ -106,9 +166,32 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
   // operation), e.g. the block command endpoints from S2-009.
   "evidence.transition": ["investment_analyst"],
 
+  // S3-007 widens content.write to campaign_manager (content_items'
+  // unqualified L R C U T cell, docs/access-control-matrix.md Section 10),
+  // alongside creative_owner's own unqualified L R C U T cell. content.read
+  // stays TEAM_ROLES (every role's content_items cell is at least
+  // read-reachable, unqualified or Related). content.transition is new:
+  // the backlog/ready/preproduction/blocked commands, shared by every role
+  // that holds T on content_items (campaign_manager, creative_owner,
+  // approver).
   "content.read": TEAM_ROLES,
-  "content.write": ["creative_owner", "editor"],
+  "content.write": ["creative_owner", "editor", "campaign_manager"],
   "content.approve": ["approver"],
+  "content.transition": ["campaign_manager", "creative_owner", "approver"],
+
+  // S3-007: content_versions. docs/access-control-matrix.md Section 10 --
+  // creative_owner holds the only create/update cell (qualified "script
+  // fields" at the column level, not enforced at the RLS row level per the
+  // S3-007 migration's own documented scope decision). campaign_manager
+  // (L R) and approver (L R A) get read.
+  "content_version.read": TEAM_ROLES,
+  "content_version.write": ["creative_owner"],
+
+  // S3-007: content_claims. docs/access-control-matrix.md Section 10 --
+  // campaign_manager and investment_analyst both hold the unqualified
+  // L R C U cell.
+  "content_claim.read": TEAM_ROLES,
+  "content_claim.write": ["campaign_manager", "investment_analyst"],
 
   "publication.read": TEAM_ROLES,
   "publication.write": ["publisher"],
