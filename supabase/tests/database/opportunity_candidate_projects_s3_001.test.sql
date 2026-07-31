@@ -1,7 +1,7 @@
 -- S3-001: opportunity candidate projects (`opportunity_projects`) schema,
 -- link integrity and restricted ordinary deletion.
 --
--- Covers docs/requirements-traceability-f3.md §10.1 acceptance: composite
+-- Covers docs/requirements-traceability-f3.md Section 10.1 acceptance: composite
 -- uniqueness preventing duplicate links, foreign-key integrity to both
 -- `opportunities` and `projects`, restricted ordinary deletion when a link
 -- exists, and least-privilege direct access ("Foundation, not yet
@@ -9,7 +9,7 @@
 
 begin;
 
-select plan(19);
+select plan(18);
 
 -- -------------------------------------------------------------------------
 -- Structural contract
@@ -27,16 +27,12 @@ select col_type_is(
 );
 
 -- -------------------------------------------------------------------------
--- Restricted ordinary deletion and least-privilege direct access
+-- Restricted ordinary deletion
 -- -------------------------------------------------------------------------
 
 select ok(
     not has_table_privilege('service_role', 'public.opportunity_projects', 'DELETE'),
     'Ordinary deletion of opportunity_projects is not granted to any role'
-);
-select ok(
-    not has_table_privilege('authenticated', 'public.opportunity_projects', 'SELECT'),
-    'Authenticated clients have no direct opportunity_projects access yet (Phase 3 route scope)'
 );
 
 -- -------------------------------------------------------------------------

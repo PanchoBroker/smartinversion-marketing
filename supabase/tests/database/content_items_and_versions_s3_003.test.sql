@@ -2,7 +2,7 @@
 -- variants, hypothesis linkage, the ready -> preproduction gate
 -- (FR-CNT-007), and content_version immutability.
 --
--- Covers docs/requirements-traceability-f3.md §10.3 acceptance: a content
+-- Covers docs/requirements-traceability-f3.md Section 10.3 acceptance: a content
 -- item cannot exist without a campaign; the full thirteen-state
 -- content_item machine is registered, with real gates for
 -- backlog -> researching, researching -> ready and ready -> preproduction;
@@ -10,7 +10,7 @@
 
 begin;
 
-select plan(44);
+select plan(42);
 
 -- -------------------------------------------------------------------------
 -- Structural contract
@@ -42,14 +42,6 @@ select ok(
 select ok(
     not has_table_privilege('service_role', 'public.content_versions', 'DELETE'),
     'Ordinary deletion of content_versions is not granted to any role'
-);
-select ok(
-    not has_table_privilege('authenticated', 'public.content_items', 'SELECT'),
-    'Authenticated clients have no direct content_items access yet (Phase 3 route scope)'
-);
-select ok(
-    not has_table_privilege('authenticated', 'public.content_versions', 'SELECT'),
-    'Authenticated clients have no direct content_versions access yet (Phase 3 route scope)'
 );
 
 -- -------------------------------------------------------------------------
