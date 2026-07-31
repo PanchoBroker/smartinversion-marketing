@@ -10,6 +10,18 @@
 -- Deliberately scoped: NOTHING here asserts objective/metric/action/
 -- owner gating (Phase 3) or content-level linkage (content_claims,
 -- Deferred) -- this item implements the evidence clause only.
+--
+-- S3-005 note (20260804000000_complete_campaign_approval_gate_s3_005.sql):
+-- campaigns_validate_approval_evidence() was extended in place to also
+-- require primary_objective/primary_metric_definition_id/owner_profile_id
+-- and the current brief's call_to_action. campaigns_fixture below was
+-- updated (objective/metric added to both campaigns; a campaign_briefs
+-- row with a non-blank call_to_action added for both) so this file's own
+-- approval assertions keep testing exactly what they already tested
+-- (evidence linkage only), without being masked by the new field checks.
+-- The new field-rejection cases (missing objective/metric/call_to_action,
+-- and the resolved Gate G2 Condition 6 staleness case) are asserted in
+-- S3-005's own test file, not duplicated here.
 
 begin;
 
@@ -270,16 +282,39 @@ select lives_ok(
 
 select lives_ok(
     $campaigns_fixture$
-        insert into public.campaigns (id, name, owner_profile_id)
+        insert into public.campaigns (
+            id, name, owner_profile_id, primary_objective, primary_metric_definition_id
+        )
         values
             (
                 'b5000000-0000-4000-8000-000000000001'::uuid,
                 'S2-007 Campaign with evidence',
-                'b0000000-0000-4000-8000-000000000102'::uuid
+                'b0000000-0000-4000-8000-000000000102'::uuid,
+                'Generar leads calificados en la region piloto',
+                'b8000000-0000-4000-8000-000000000001'::uuid
             ),
             (
                 'b5000000-0000-4000-8000-000000000002'::uuid,
                 'S2-007 Campaign without evidence',
+                'b0000000-0000-4000-8000-000000000102'::uuid,
+                'Generar leads calificados en la region piloto',
+                'b8000000-0000-4000-8000-000000000002'::uuid
+            );
+
+        -- S3-005 note: both campaigns now carry a current brief with a
+        -- non-blank call_to_action, so this file's approval assertions
+        -- (evidence linkage only) are not masked by the S3-005 field
+        -- checks added to campaigns_validate_approval_evidence().
+        insert into public.campaign_briefs (campaign_id, call_to_action, created_by)
+        values
+            (
+                'b5000000-0000-4000-8000-000000000001'::uuid,
+                'Agenda una asesoria gratuita hoy',
+                'b0000000-0000-4000-8000-000000000102'::uuid
+            ),
+            (
+                'b5000000-0000-4000-8000-000000000002'::uuid,
+                'Agenda una asesoria gratuita hoy',
                 'b0000000-0000-4000-8000-000000000102'::uuid
             );
 
