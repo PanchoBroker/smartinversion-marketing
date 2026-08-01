@@ -23,10 +23,18 @@ vi.mock("@/lib/supabase/service-role", () => ({
 
 import { POST as approveCampaign } from "@/app/api/v1/campaigns/[id]/approve/route";
 import { POST as pauseCampaign } from "@/app/api/v1/campaigns/[id]/pause/route";
+import { POST as closeCampaign } from "@/app/api/v1/campaigns/[id]/close/route";
+import { POST as transitionCampaign } from "@/app/api/v1/campaigns/[id]/transition/route";
 
 // S3-007: behavioral coverage for the campaign command routes -- the
 // FIRST use of createTransitionHandler's objectType widened to "campaign"
 // (previously evidence_item/claim only).
+//
+// S3-008 extends this file to the two campaign command routes S3-007
+// itself did not yet cover here: /close (createTransitionHandler, same
+// shape as approve/pause) and /transition (createGenericTransitionHandler,
+// the one campaign edge -- draft -> evidence_pending -- Especificacion
+// Tecnica 9.3's named endpoints don't cover).
 
 const CORRELATION_ID = "723e4567-e89b-42d3-a456-426614174006";
 const PROFILE_ID = "10000000-0000-4000-8000-000000000008";
@@ -228,6 +236,130 @@ describe("campaign command authorization (approve/pause via the widened createTr
       expect.objectContaining({
         p_object_type: "campaign",
         p_new_state: "paused",
+      }),
+    );
+  });
+
+  it("denies a role the S1-003 policy does not permit on close, never reaching the engine", async () => {
+    mocks.createUserClient.mockResolvedValue(
+      fakeUserClient({ id: "auth-user" }),
+    );
+
+    const serviceClient = fakeServiceClient({
+      profile: { id: PROFILE_ID, account_status: "active" },
+      assignments: [assignment("creative_owner")],
+      role: { id: ROLE_ID },
+      rpcResult: { data: null, error: null },
+    });
+    mocks.createServiceClient.mockResolvedValue(serviceClient.client);
+
+    const request = commandRequest("close", {
+      expected_version: 9,
+      reason: "attempt by an unpermitted role",
+    });
+    request.headers.set("x-exercised-role", "creative_owner");
+
+    const response = await closeCampaign(request, routeContext());
+
+    expect(response.status).toBe(403);
+    expect(serviceClient.rpc).not.toHaveBeenCalled();
+  });
+
+  it("lets a campaign manager close a campaign, calling the engine with objectType campaign", async () => {
+    mocks.createUserClient.mockResolvedValue(
+      fakeUserClient({ id: "auth-user" }),
+    );
+
+    const serviceClient = fakeServiceClient({
+      profile: { id: PROFILE_ID, account_status: "active" },
+      assignments: [assignment("campaign_manager")],
+      role: { id: ROLE_ID },
+      rpcResult: {
+        data: [{ new_state: "closed", new_version: 12 }],
+        error: null,
+      },
+    });
+    mocks.createServiceClient.mockResolvedValue(serviceClient.client);
+
+    const response = await closeCampaign(
+      commandRequest("close", {
+        expected_version: 11,
+        reason: "S3-008 fixture closure",
+      }),
+      routeContext(),
+    );
+
+    expect(response.status).toBe(200);
+
+    expect(serviceClient.rpc).toHaveBeenCalledWith(
+      "execute_state_transition",
+      expect.objectContaining({
+        p_object_type: "campaign",
+        p_object_id: CAMPAIGN_ID,
+        p_new_state: "closed",
+      }),
+    );
+  });
+
+  it("rejects a target state outside the /transition route's allowlist before calling the engine", async () => {
+    mocks.createUserClient.mockResolvedValue(
+      fakeUserClient({ id: "auth-user" }),
+    );
+
+    const serviceClient = fakeServiceClient({
+      profile: { id: PROFILE_ID, account_status: "active" },
+      assignments: [assignment("campaign_manager")],
+      role: { id: ROLE_ID },
+      rpcResult: { data: null, error: null },
+    });
+    mocks.createServiceClient.mockResolvedValue(serviceClient.client);
+
+    const response = await transitionCampaign(
+      commandRequest("transition", {
+        new_state: "approved",
+        expected_version: 1,
+        reason: "attempt to skip the dedicated approve command",
+      }),
+      routeContext(),
+    );
+
+    expect(response.status).toBe(400);
+    expect(serviceClient.rpc).not.toHaveBeenCalled();
+  });
+
+  it("lets a campaign manager move a campaign from draft to evidence_pending via /transition", async () => {
+    mocks.createUserClient.mockResolvedValue(
+      fakeUserClient({ id: "auth-user" }),
+    );
+
+    const serviceClient = fakeServiceClient({
+      profile: { id: PROFILE_ID, account_status: "active" },
+      assignments: [assignment("campaign_manager")],
+      role: { id: ROLE_ID },
+      rpcResult: {
+        data: [{ new_state: "evidence_pending", new_version: 2 }],
+        error: null,
+      },
+    });
+    mocks.createServiceClient.mockResolvedValue(serviceClient.client);
+
+    const response = await transitionCampaign(
+      commandRequest("transition", {
+        new_state: "evidence_pending",
+        expected_version: 1,
+        reason: "S3-008 fixture progression",
+      }),
+      routeContext(),
+    );
+
+    expect(response.status).toBe(200);
+
+    expect(serviceClient.rpc).toHaveBeenCalledWith(
+      "execute_state_transition",
+      expect.objectContaining({
+        p_object_type: "campaign",
+        p_object_id: CAMPAIGN_ID,
+        p_new_state: "evidence_pending",
       }),
     );
   });
