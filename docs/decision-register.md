@@ -5,8 +5,8 @@
 - **Work item:** S0-019 / Gate G0 review
 - **Status:** Under Gate G0 review
 - **Owner:** Smartinversion product owner
-- **Updated:** 2026-07-30 (Sprint 3 planning: D-13 added)
-- **Purpose:** Record the status, owner, rationale, evidence and blocking effect of decisions D-01 through D-13.
+- **Updated:** 2026-08-01 (Gate G3: D-14 added)
+- **Purpose:** Record the status, owner, rationale, evidence and blocking effect of decisions D-01 through D-14.
 
 ## 1. Decision states
 
@@ -35,6 +35,7 @@
 | D-11 | Phase 2/Phase 3 scope boundary (Evidencia y claims vs. Campañas y contenido) | Decided | Product owner | None for Sprint 2 |
 | D-12 | `CLM-` claim-code prefix ratification | Decided | Product owner | None for Sprint 2/Gate G2 |
 | D-13 | Phase 3/Phase 4 scope boundary within "contenido" (backlog/definition vs. production/QA) | Decided | Product owner | None for Sprint 3 |
+| D-14 | `HYP-` hypothesis-code and `CNT-` content-item-code prefix ratification | Decided | Product owner | None for Sprint 3/Gate G3 |
 
 ## 3. D-01 — Hosting account and plan
 
@@ -386,7 +387,43 @@ Approved by the product owner on 2026-07-30 during Sprint 3 planning.
 - `docs/requirements-traceability-f3.md` (Sprint 3 backlog, built on this phase boundary)
 - Future Phase 4 planning, once Gate G3 is reviewed
 
-## 16. Gate G0 interpretation required
+## 16. D-14 — `HYP-` hypothesis-code and `CNT-` content-item-code prefix ratification
+
+### Decision
+
+`HYP-` and `CNT-` are approved entity-code prefixes under the human-code framework established by D-09 and extended through D-12. Hypothesis codes and content-item codes use the existing `<PREFIX>-<YEAR>-<SIX-DIGIT-SEQUENCE>` format.
+
+Their PostgreSQL generators remain database-backed, concurrency-safe and immutable after creation.
+
+### Rationale
+
+Sprint 3 required human-readable codes for hypotheses and content items. Gate G3 confirmed that both prefixes apply the already-approved D-09/D-12 framework rather than introducing a different code convention.
+
+Formal ratification removes the remaining documentation gap identified in `docs/g3-gate-review.md` §7.1 without changing the implemented format or generation mechanism.
+
+### Scope
+
+This decision extends the approved human-code framework specifically to hypotheses and content items.
+
+It does not approve additional prefixes, alter lifecycle vocabularies, authorize manual code mutation or change the existing uniqueness and immutability rules.
+
+### Evidence
+
+- `docs/data-conventions.md` §5 (general human-code framework)
+- D-09 and D-12 in this decision register
+- `docs/g3-gate-review.md` §7.1
+- Sprint 3 PostgreSQL generators and their pgTAP coverage
+
+### Approval
+
+Ratified by the product owner through the Gate G3 decision recorded in `docs/g3-gate-review.md`.
+
+### Affected implementation
+
+- Existing `HYP-` and `CNT-` PostgreSQL generators are formally ratified.
+- No migration or application-code change is required by this decision.
+- Future code-prefix additions still require explicit approval under the established change-control process.
+## 17. Gate G0 interpretation required
 
 Gate G0 must not silently treat D-06 or D-07 as complete.
 
@@ -404,7 +441,7 @@ Under every outcome:
 - no draft consent wording may be presented as legally approved;
 - no retention period may be inferred.
 
-## 17. Change control
+## 18. Change control
 
 A decision change must record:
 

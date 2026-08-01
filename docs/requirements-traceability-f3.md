@@ -5,9 +5,9 @@
 | Field | Value |
 |---|---|
 | Project | Marketing Content — Smartinversion |
-| Work item | Sprint 3 planning (successor to Sprint 2 planning, for Phase 3) |
-| Version | 1.0-draft |
-| Status | Proposed for review |
+| Work item | Sprint 3 execution and Gate G3 closure (Phase 3) |
+| Version | 1.0 |
+| Status | Accepted at Gate G3 — ADVANCE CONDITIONALLY |
 | Target iteration | Sprint 3 — Campañas y contenido (Phase 3) |
 | Data policy | Synthetic data only |
 | Production authorization | Not granted |
@@ -330,3 +330,30 @@ Priority does not authorize implementation ahead of sequencing, consistent with 
 - final coverage report;
 - residual-risk register;
 - gate decision.
+## 11. Gate G3 result and Sprint 3 closure
+
+| Field | Result |
+|---|---|
+| Review record | `docs/g3-gate-review.md` |
+| Gate decision | **ADVANCE CONDITIONALLY** |
+| Sprint 3 result | 9/9 backlog items accepted |
+| Phase 4 authorization | Planning and synthetic-only implementation |
+| Production authorization | Not granted |
+| Governing conditions | `docs/g3-gate-review.md` §8 |
+| Explicit prohibitions | `docs/g3-gate-review.md` §9 |
+| Deferred scope | `docs/g3-gate-review.md` §10 |
+
+The Sprint 3 implementation evidence accepted by Gate G3 comprises:
+
+- all eight implementation pull requests merged;
+- 773/773 pgTAP assertions passing;
+- 132/132 Vitest tests passing;
+- lint, typecheck, Next.js build and OpenNext Cloudflare build passing;
+- secret scanning passing;
+- all three required CI jobs passing;
+- no unresolved critical data-exposure or authorization-bypass defect;
+- every known residual issue assigned an explicit blocking point.
+
+Sprint 3 is accepted as 9/9 completed through the S3-009 documentation set. Phase 4 may begin only for planning and synthetic-only implementation under the twelve conditions recorded in `docs/g3-gate-review.md` §8.
+
+Gate G3 does not authorize production deployment, real lead processing, real campaign activation, paid media, automatic publication or the use of real financial figures.
