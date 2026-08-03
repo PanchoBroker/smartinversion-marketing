@@ -85,9 +85,13 @@ set local request.jwt.claim.sub =
     '90000000-0000-4000-8000-000000000003';
 
 select results_eq(
-    $$select count(*) from public.settings$$,
+    $test$
+        select count(*)
+        from public.settings
+        where id = '92000000-0000-4000-8000-000000000001'::uuid
+    $test$,
     $$values (0::bigint)$$,
-    'Ordinary users initially see no settings'
+    'Ordinary users initially have no S1-009 fixture setting'
 );
 
 select throws_ok(
@@ -355,10 +359,10 @@ select results_eq(
     $test$
         select setting_key
         from public.settings
-        order by setting_key
+        where id = '92000000-0000-4000-8000-000000000001'::uuid
     $test$,
     $$values ('alerts.deadline_hours'::text)$$,
-    'Ordinary active users read only approved active settings'
+    'Ordinary active users read the approved active S1-009 fixture setting'
 );
 
 select results_eq(
