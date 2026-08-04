@@ -44,6 +44,11 @@ export const AUTHORIZATION_ACTIONS = [
   "content_version.approve",
   "content_claim.read",
   "content_claim.write",
+  // S4-0xx: first F4 production-domain action pair (scenes, S4-002).
+  // See the POLICY comment below for the role list and why it is
+  // narrower than TEAM_ROLES.
+  "scene.read",
+  "scene.write",
   "publication.read",
   "publication.write",
   "publication.approve",
@@ -202,6 +207,29 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
   // L R C U cell.
   "content_claim.read": TEAM_ROLES,
   "content_claim.write": ["campaign_manager", "investment_analyst"],
+
+  // F4 production/QA domain (docs/access-control-matrix.md Section 11).
+  // Unlike content_items/content_versions (Section 10), Section 11's
+  // matrix has NO "Other internal roles" column -- commercial_owner,
+  // investment_analyst, administrator, commercial_liaison and
+  // results_analyst hold no cell at all on `scenes`, and S4-008's RLS
+  // migration confirms this literally (no policy of any kind for those
+  // five roles on scenes/scene_prompt_versions/scene_acceptance_criteria).
+  // TEAM_ROLES would therefore over-admit; this coarse layer is scoped to
+  // exactly the six roles the matrix and the RLS policies both name.
+  // scene.write matches the RLS insert policy shape: only creative_owner
+  // holds an insert policy on `scenes` (director_ai_operator's "L R U
+  // generation fields" cell only reaches scene_prompt_versions, per the
+  // S4-008 migration's own documented departure from a literal reading).
+  "scene.read": [
+    "creative_owner",
+    "director_ai_operator",
+    "editor",
+    "approver",
+    "campaign_manager",
+    "publisher",
+  ],
+  "scene.write": ["creative_owner"],
 
   "publication.read": TEAM_ROLES,
   "publication.write": ["publisher"],
