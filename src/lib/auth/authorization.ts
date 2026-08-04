@@ -59,6 +59,8 @@ export const AUTHORIZATION_ACTIONS = [
   "generation_attempt_evaluation.write",
   "scene_generation_budget_decision.read",
   "scene_generation_budget_decision.write",
+  "asset.read",
+  "asset.write",
   "publication.read",
   "publication.write",
   "publication.approve",
@@ -328,6 +330,28 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
     "director_ai_operator",
     "approver",
   ],
+
+  // assets, asset_links (S4-004), docs/access-control-matrix.md Section 11.
+  // S4-008's own migration comment (Section 3) spells out the qualified
+  // cells this coarse layer intentionally does not narrow further (RLS
+  // does that row-by-row): creative_owner is "Related" (created_by = self),
+  // director_ai_operator is scoped to asset_type = 'generation', editor is
+  // unqualified. approver only holds an UPDATE policy on assets (no INSERT
+  // policy on either table) -- kept out of asset.write for that reason,
+  // same convention as content_version.approve being separate from
+  // content_version.write. campaign_manager and publisher are read-only
+  // here (their select policies are conditional -- linked/approved rows
+  // only -- but this coarse layer follows the same admit-then-let-RLS-
+  // narrow convention already used for scene.read's publisher cell).
+  "asset.read": [
+    "creative_owner",
+    "director_ai_operator",
+    "editor",
+    "approver",
+    "campaign_manager",
+    "publisher",
+  ],
+  "asset.write": ["creative_owner", "director_ai_operator", "editor"],
 
   "publication.read": TEAM_ROLES,
   "publication.write": ["publisher"],
