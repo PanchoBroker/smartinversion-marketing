@@ -55,6 +55,8 @@ export const AUTHORIZATION_ACTIONS = [
   "scene_acceptance_criterion.write",
   "generation_attempt.read",
   "generation_attempt.write",
+  "scene_generation_budget_decision.read",
+  "scene_generation_budget_decision.write",
   "publication.read",
   "publication.write",
   "publication.approve",
@@ -284,6 +286,27 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
     "campaign_manager",
   ],
   "generation_attempt.write": ["director_ai_operator"],
+
+  // scene_generation_budget_decisions (S4-003), docs/access-control-
+  // matrix.md Section 11. S4-008's own migration comment flags the write
+  // role set as "a judgment call, not a literal matrix cell" -- confirmed
+  // with the user (2026-08-04): kept as-is (director_ai_operator +
+  // approver) so the system does not need rework once the real director
+  // IA automation exists; until then the user exercises
+  // director_ai_operator manually via their own role_assignments row.
+  // Read is the same 5-role shape as generation_attempt.read (no
+  // publisher policy exists on this table either).
+  "scene_generation_budget_decision.read": [
+    "creative_owner",
+    "director_ai_operator",
+    "editor",
+    "approver",
+    "campaign_manager",
+  ],
+  "scene_generation_budget_decision.write": [
+    "director_ai_operator",
+    "approver",
+  ],
 
   "publication.read": TEAM_ROLES,
   "publication.write": ["publisher"],
