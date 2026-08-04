@@ -55,6 +55,8 @@ export const AUTHORIZATION_ACTIONS = [
   "scene_acceptance_criterion.write",
   "generation_attempt.read",
   "generation_attempt.write",
+  "generation_attempt_evaluation.read",
+  "generation_attempt_evaluation.write",
   "scene_generation_budget_decision.read",
   "scene_generation_budget_decision.write",
   "publication.read",
@@ -286,6 +288,25 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
     "campaign_manager",
   ],
   "generation_attempt.write": ["director_ai_operator"],
+
+  // generation_attempt_evaluations (S4-003), docs/access-control-matrix.md
+  // Section 11. Its own action, not a reuse of generation_attempt.*: the
+  // deferred-completeness trigger means this table is only ever written
+  // through the record_generation_attempt_evaluation RPC (S4-003 follow-up,
+  // commit ea001e6), but that RPC is security invoker -- it runs with the
+  // caller's own privileges, so the write role set here must match S4-008's
+  // single insert policy on generation_attempt_evaluations exactly
+  // (director_ai_operator only; unlike scene_generation_budget_decisions,
+  // there is no approver insert policy on this table). Read is the same
+  // 5-role shape as generation_attempt.read (same absent publisher policy).
+  "generation_attempt_evaluation.read": [
+    "creative_owner",
+    "director_ai_operator",
+    "editor",
+    "approver",
+    "campaign_manager",
+  ],
+  "generation_attempt_evaluation.write": ["director_ai_operator"],
 
   // scene_generation_budget_decisions (S4-003), docs/access-control-
   // matrix.md Section 11. S4-008's own migration comment flags the write
