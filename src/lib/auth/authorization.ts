@@ -41,6 +41,7 @@ export const AUTHORIZATION_ACTIONS = [
   "content.transition",
   "content_version.read",
   "content_version.write",
+  "content_version.approve",
   "content_claim.read",
   "content_claim.write",
   "publication.read",
@@ -186,6 +187,15 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
   // (L R) and approver (L R A) get read.
   "content_version.read": TEAM_ROLES,
   "content_version.write": ["creative_owner"],
+  // S4-009: approver's own A cell on content_versions (docs/access-control-
+  // matrix.md Section 10, "L R A") formalized as its own action, for the
+  // qa_pending -> changes_required reject-qa command (RPC
+  // reject_content_version_qa). Mirrors evidence.approve's shape (S2-009):
+  // a role that already holds read-only L R gets the additional Approve
+  // permission as one explicit action, kept separate from
+  // content_version.write (creative_owner's own C/U cell, a different role
+  // entirely).
+  "content_version.approve": ["approver"],
 
   // S3-007: content_claims. docs/access-control-matrix.md Section 10 --
   // campaign_manager and investment_analyst both hold the unqualified
