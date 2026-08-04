@@ -152,22 +152,22 @@ select ok(
 );
 
 select ok(
-    not has_table_privilege(
+    has_table_privilege(
         'authenticated',
         'public.generation_attempts',
         'SELECT'
     )
-    and not has_table_privilege(
+    and has_table_privilege(
         'authenticated',
         'public.generation_attempts',
         'INSERT'
     )
-    and not has_table_privilege(
+    and has_table_privilege(
         'authenticated',
         'public.scene_generation_budget_status',
         'SELECT'
     ),
-    'Authenticated clients have no direct S4-003 table or view access'
+    'Authenticated clients have direct S4-003 table/view access, gated by S4-008 per-role RLS'
 );
 
 select ok(

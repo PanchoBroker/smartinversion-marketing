@@ -44,8 +44,8 @@ select ok(
     'Service role cannot update or delete approvals'
 );
 select ok(
-    not has_table_privilege('authenticated', 'public.approvals', 'SELECT'),
-    'Authenticated clients have no direct access to approvals'
+    has_table_privilege('authenticated', 'public.approvals', 'SELECT'),
+    'Authenticated clients have direct SELECT access to approvals, gated by S4-008 per-role RLS'
 );
 select ok(
     has_table_privilege('service_role', 'public.approval_invalidations', 'SELECT,INSERT'),

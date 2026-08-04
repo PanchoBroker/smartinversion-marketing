@@ -128,17 +128,17 @@ select ok(
 );
 
 select ok(
-    not has_table_privilege(
+    has_table_privilege(
         'authenticated',
         'public.assets',
         'SELECT'
     )
-    and not has_table_privilege(
+    and has_table_privilege(
         'authenticated',
         'public.assets',
         'INSERT'
     )
-    and not has_table_privilege(
+    and has_table_privilege(
         'authenticated',
         'public.assets',
         'UPDATE'
@@ -148,16 +148,16 @@ select ok(
         'public.assets',
         'DELETE'
     ),
-    'Authenticated clients have no direct access to assets'
+    'Authenticated clients have direct select/insert/update access to assets (no delete), gated by S4-008 per-role RLS'
 );
 
 select ok(
-    not has_table_privilege(
+    has_table_privilege(
         'authenticated',
         'public.asset_links',
         'SELECT'
     )
-    and not has_table_privilege(
+    and has_table_privilege(
         'authenticated',
         'public.asset_links',
         'INSERT'
@@ -172,7 +172,7 @@ select ok(
         'public.asset_links',
         'DELETE'
     ),
-    'Authenticated clients have no direct access to asset links'
+    'Authenticated clients have direct select/insert access to asset links (no update/delete), gated by S4-008 per-role RLS'
 );
 
 -- -------------------------------------------------------------------------

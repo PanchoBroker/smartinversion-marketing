@@ -70,12 +70,12 @@ select ok(
     'Service role cannot delete scene acceptance criteria'
 );
 select ok(
-    not has_table_privilege('authenticated', 'public.scenes', 'SELECT'),
-    'Authenticated has no direct SELECT privilege on scenes'
+    has_table_privilege('authenticated', 'public.scenes', 'SELECT'),
+    'Authenticated has direct SELECT privilege on scenes, gated by S4-008 per-role RLS'
 );
 select ok(
-    not has_table_privilege('authenticated', 'public.scenes', 'INSERT'),
-    'Authenticated has no direct INSERT privilege on scenes'
+    has_table_privilege('authenticated', 'public.scenes', 'INSERT'),
+    'Authenticated has direct INSERT privilege on scenes, gated by S4-008 per-role RLS'
 );
 
 -- -------------------------------------------------------------------------
