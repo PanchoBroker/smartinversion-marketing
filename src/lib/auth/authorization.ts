@@ -53,6 +53,8 @@ export const AUTHORIZATION_ACTIONS = [
   "scene_prompt_version.write",
   "scene_acceptance_criterion.read",
   "scene_acceptance_criterion.write",
+  "generation_attempt.read",
+  "generation_attempt.write",
   "publication.read",
   "publication.write",
   "publication.approve",
@@ -265,6 +267,23 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
     "campaign_manager",
   ],
   "scene_acceptance_criterion.write": ["creative_owner"],
+
+  // generation_attempts (S4-003), docs/access-control-matrix.md Section 11.
+  // Insert is director_ai_operator-only (S4-008's single insert policy).
+  // Read admits editor despite its RLS policy being conditional
+  // (generation_attempts_editor_selected_select: only rows whose
+  // evaluation.decision = 'select_for_editing') -- same coarse-admits/
+  // RLS-narrows convention already used for scene.read's publisher cell.
+  // publisher holds NO policy at all here (Section 11's "-" cell,
+  // confirmed literally absent from S4-008) and is deliberately excluded.
+  "generation_attempt.read": [
+    "creative_owner",
+    "director_ai_operator",
+    "editor",
+    "approver",
+    "campaign_manager",
+  ],
+  "generation_attempt.write": ["director_ai_operator"],
 
   "publication.read": TEAM_ROLES,
   "publication.write": ["publisher"],
