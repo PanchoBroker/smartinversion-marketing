@@ -51,6 +51,8 @@ export const AUTHORIZATION_ACTIONS = [
   "scene.write",
   "scene_prompt_version.read",
   "scene_prompt_version.write",
+  "scene_acceptance_criterion.read",
+  "scene_acceptance_criterion.write",
   "publication.read",
   "publication.write",
   "publication.approve",
@@ -248,6 +250,21 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
     "publisher",
   ],
   "scene_prompt_version.write": ["creative_owner", "director_ai_operator"],
+
+  // scene_acceptance_criteria (S4-002): unlike scenes/scene_prompt_versions,
+  // S4-008 creates NO publisher policy at all on this table (verified by
+  // reading the migration's Section 1 in full) -- 5 select policies only
+  // (creative_owner, director_ai_operator, editor, approver,
+  // campaign_manager). Insert stays creative_owner-only, same shape as
+  // `scenes`.
+  "scene_acceptance_criterion.read": [
+    "creative_owner",
+    "director_ai_operator",
+    "editor",
+    "approver",
+    "campaign_manager",
+  ],
+  "scene_acceptance_criterion.write": ["creative_owner"],
 
   "publication.read": TEAM_ROLES,
   "publication.write": ["publisher"],
