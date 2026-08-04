@@ -2,7 +2,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(70);
+select plan(78);
 
 -- -------------------------------------------------------------------------
 -- Structural contract, RLS and least privilege
@@ -1534,6 +1534,143 @@ select throws_ok(
     '23514',
     'S4_003_SCENE_HAS_NO_ACCEPTANCE_CRITERIA',
     'An evaluation cannot complete for a scene without acceptance criteria'
+);
+
+-- -------------------------------------------------------------------------
+-- record_generation_attempt_evaluation: the S4-003 follow-up RPC that
+-- inserts one evaluation plus all of its criterion results in a single
+-- transaction, so the deferred completeness trigger above sees the
+-- complete set instead of failing on a lone evaluation insert.
+-- -------------------------------------------------------------------------
+
+select has_function(
+    'public',
+    'record_generation_attempt_evaluation',
+    array['uuid', 'numeric', 'text', 'text', 'text', 'text', 'uuid', 'jsonb'],
+    'record_generation_attempt_evaluation function exists'
+);
+
+select ok(
+    has_function_privilege(
+        'service_role',
+        'public.record_generation_attempt_evaluation(uuid,numeric,text,text,text,text,uuid,jsonb)',
+        'EXECUTE'
+    ),
+    'Service role can call the atomic evaluation RPC'
+);
+
+select ok(
+    has_function_privilege(
+        'authenticated',
+        'public.record_generation_attempt_evaluation(uuid,numeric,text,text,text,text,uuid,jsonb)',
+        'EXECUTE'
+    ),
+    'Authenticated clients can call the atomic evaluation RPC (RLS on the underlying tables still gates the actual insert)'
+);
+
+select ok(
+    not has_function_privilege(
+        'anon',
+        'public.record_generation_attempt_evaluation(uuid,numeric,text,text,text,text,uuid,jsonb)',
+        'EXECUTE'
+    ),
+    'Anonymous clients cannot call the atomic evaluation RPC'
+);
+
+select ok(
+    not has_function_privilege(
+        'public',
+        'public.record_generation_attempt_evaluation(uuid,numeric,text,text,text,text,uuid,jsonb)',
+        'EXECUTE'
+    ),
+    'The atomic evaluation RPC is not left executable by PUBLIC'
+);
+
+select throws_ok(
+    $rpc_incomplete_evaluation$
+        select public.record_generation_attempt_evaluation(
+            'e4800000-0000-4000-8000-000000000004'::uuid,
+            92,
+            'approved',
+            'select_for_editing',
+            'RPC evaluation missing one criterion result',
+            null,
+            'e4000000-0000-4000-8000-000000000001'::uuid,
+            jsonb_build_array(
+                jsonb_build_object(
+                    'acceptance_criterion_id',
+                    'e4600000-0000-4000-8000-000000000001',
+                    'result', 'passed',
+                    'score', 95
+                ),
+                jsonb_build_object(
+                    'acceptance_criterion_id',
+                    'e4600000-0000-4000-8000-000000000002',
+                    'result', 'not_applicable',
+                    'comment', 'Desirable motion was not applicable'
+                )
+            )
+        );
+
+        set constraints all immediate;
+    $rpc_incomplete_evaluation$,
+    '23514',
+    'S4_003_EVALUATION_CRITERIA_INCOMPLETE',
+    'The RPC still cannot complete an evaluation missing a criterion result -- it does not bypass the deferred trigger'
+);
+
+select lives_ok(
+    $rpc_complete_evaluation$
+        select public.record_generation_attempt_evaluation(
+            'e4800000-0000-4000-8000-000000000004'::uuid,
+            92,
+            'approved',
+            'select_for_editing',
+            'RPC evaluation with full atomic criterion coverage',
+            null,
+            'e4000000-0000-4000-8000-000000000001'::uuid,
+            jsonb_build_array(
+                jsonb_build_object(
+                    'acceptance_criterion_id',
+                    'e4600000-0000-4000-8000-000000000001',
+                    'result', 'passed',
+                    'score', 95
+                ),
+                jsonb_build_object(
+                    'acceptance_criterion_id',
+                    'e4600000-0000-4000-8000-000000000002',
+                    'result', 'not_applicable',
+                    'comment', 'Desirable motion was not applicable'
+                ),
+                jsonb_build_object(
+                    'acceptance_criterion_id',
+                    'e4600000-0000-4000-8000-000000000003',
+                    'result', 'passed',
+                    'score', 100
+                )
+            )
+        );
+
+        set constraints all immediate;
+        set constraints all deferred;
+    $rpc_complete_evaluation$,
+    'A single RPC call inserts the evaluation and all three criterion results as one atomic unit'
+);
+
+select is(
+    (
+        select jsonb_build_object(
+            'expected', expected_criteria,
+            'recorded', recorded_criteria,
+            'failed', failed_criteria,
+            'blocking_passed', blocking_criteria_passed
+        )
+        from public.generation_attempt_evaluation_status
+        where generation_attempt_id =
+            'e4800000-0000-4000-8000-000000000004'::uuid
+    ),
+    '{"expected":3,"recorded":3,"failed":0,"blocking_passed":true}'::jsonb,
+    'The RPC-inserted evaluation exposes complete normalized coverage, proving all rows landed in the same transaction'
 );
 
 -- -------------------------------------------------------------------------
