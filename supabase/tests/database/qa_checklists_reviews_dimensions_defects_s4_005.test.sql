@@ -54,8 +54,8 @@ select ok(
     'Service role cannot delete qa_reviews'
 );
 select ok(
-    not has_table_privilege('authenticated', 'public.qa_reviews', 'SELECT'),
-    'Authenticated clients have no direct access to qa_reviews'
+    has_table_privilege('authenticated', 'public.qa_reviews', 'SELECT'),
+    'Authenticated clients have direct SELECT access to qa_reviews, gated by S4-008 per-role RLS'
 );
 
 -- -------------------------------------------------------------------------
