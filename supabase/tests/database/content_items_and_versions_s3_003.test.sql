@@ -608,10 +608,10 @@ select throws_ok(
 select lives_ok(
     $update_status_allowed$
         update public.content_versions
-        set status = 'qa_review'
+        set status = 'qa_pending'
         where id = '55000000-0000-4000-8000-000000000001'::uuid;
     $update_status_allowed$,
-    'status can still be updated after locking -- only script/caption/checksum are protected'
+    'status can still be updated after locking -- only script/caption/checksum are protected (S4-006 later governs the value/transition graph; draft -> qa_pending is the one valid edge from the default status, used here instead of the pre-S4-006 arbitrary ''qa_review'' literal)'
 );
 
 select lives_ok(
