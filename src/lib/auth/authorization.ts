@@ -49,6 +49,8 @@ export const AUTHORIZATION_ACTIONS = [
   // narrower than TEAM_ROLES.
   "scene.read",
   "scene.write",
+  "scene_prompt_version.read",
+  "scene_prompt_version.write",
   "publication.read",
   "publication.write",
   "publication.approve",
@@ -230,6 +232,22 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
     "publisher",
   ],
   "scene.write": ["creative_owner"],
+
+  // scene_prompt_versions (S4-002) gets its OWN action, not a reuse of
+  // scene.*: S4-008 grants it two insert policies (creative_owner AND
+  // director_ai_operator), unlike `scenes` (creative_owner only). Read
+  // side is the same 6-role shape as scenes (confirmed identical select
+  // policies including publisher-approved), so scene_prompt_version.read
+  // mirrors scene.read exactly.
+  "scene_prompt_version.read": [
+    "creative_owner",
+    "director_ai_operator",
+    "editor",
+    "approver",
+    "campaign_manager",
+    "publisher",
+  ],
+  "scene_prompt_version.write": ["creative_owner", "director_ai_operator"],
 
   "publication.read": TEAM_ROLES,
   "publication.write": ["publisher"],
