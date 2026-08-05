@@ -67,7 +67,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(78);
+select plan(98);
 
 -- -------------------------------------------------------------------------
 -- Fixtures: one profile per F4-relevant role (creative_owner, director_ai_
@@ -1664,6 +1664,354 @@ select results_eq(
     $$,
     $$values ('e9600000-0000-4000-8000-000000000002'::uuid)$$,
     'An approver can update any asset unconditionally'
+);
+
+-- Slice 3 leaves the role as 'authenticated' impersonating approver (the
+-- last role switch above). Reset before slice 4 opens its own fixtures,
+-- same lesson learned in slices 1->2 and 2->3.
+reset role;
+
+-- -------------------------------------------------------------------------
+-- Slice 4 of N: asset_links (Section 11). Append-only like scenes/
+-- generation_attempts (S4-008 grants select+insert only, no update, to
+-- authenticated) rather than mutable like assets -- so update-immutability
+-- below is proven with throws_ok() (a hard 42501 at the table-privilege
+-- level), not is_empty()/results_eq() on UPDATE ... RETURNING.
+--
+-- Audited against 20260814000000_...s4_008.sql Section 3 (lines 542-606,
+-- re-read and re-verified this session, both against the live file on disk
+-- and against repomix-output.txt -- no drift): creative_owner is "related"
+-- (created_by = self, same shape as assets_creative_owner_related_*);
+-- director_ai_operator is type-scoped via exists() into assets (asset_type
+-- = 'generation'), the same asset-typed shape as its own assets policy,
+-- just checked on the OTHER side of the relationship this time; editor and
+-- approver are unconditional select (approver has no insert policy at all
+-- -- select-only, same shape as its own assets policy). Worth flagging
+-- explicitly (Regla de Comprensión de Código): despite its name,
+-- asset_links_campaign_manager_related_select is NOT actually related/
+-- scoped -- its USING clause is a bare has_active_role('campaign_manager')
+-- with no exists() or ownership check, unconditional exactly like editor's
+-- and approver's policies, confirmed by direct inspection of the migration
+-- body, not assumed from the policy name. publisher's exists() targets
+-- assets joined to content_versions (asset_type = 'master' and an approved
+-- version bound via master_asset_id) -- the same "approved-publication"
+-- shape as its own assets policy, just reached one hop further.
+--
+-- Circular-RLS watch (flagged as the one thing to confirm with a real run,
+-- not assume, in the S4-010 rebanada-3 corrective migration and in this
+-- project's Registro de Patrones): asset_links_director_ai_operator_
+-- generation_select/_insert query assets directly via exists(). This does
+-- NOT reopen the cycle the rebanada-3 migration closed, because the fix
+-- only rewrote assets_campaign_manager_related_select (now routed through
+-- the SECURITY DEFINER s4_010_asset_has_any_link(uuid) helper) -- no
+-- policy on assets queries asset_links directly anymore, so there is only
+-- one remaining edge (asset_links -> assets), not a cycle. This slice's own
+-- director_ai_operator read/insert proofs below are the real confirmation
+-- of that, not a re-assertion of the same claim.
+--
+-- Fixture: reuses the master asset (e9600000-...0001, creative-owner
+-- authored, already bound to an approved content_version by slice 3) and
+-- the generation asset (e9600000-...0002, already linked to the slice-1
+-- draft scene by slice 3's own fixture) rather than creating new ones --
+-- every table this slice touches already has real, RLS-relevant rows from
+-- slices 1-3 sitting in the same still-open transaction. One new link row
+-- is added here (creative_owner-authored, binding the master asset to the
+-- fixture content_item) specifically so publisher's exists() -- which
+-- slice 3's original director_ai_operator-authored link (bound to the
+-- generation asset) can never satisfy -- has something real to find, and
+-- so creative_owner's own "related" read/insert has a positive case, not
+-- only the slice-3-inherited negative one.
+-- -------------------------------------------------------------------------
+
+select lives_ok(
+    $co_asset_link_fixture$
+        insert into public.asset_links (
+            id, asset_id, related_object_type, related_object_id,
+            relation_type, created_by
+        )
+        values (
+            'e9700000-0000-4000-8000-000000000002'::uuid,
+            'e9600000-0000-4000-8000-000000000001'::uuid,
+            'content_item',
+            'e5000000-0000-4000-8000-000000000003'::uuid,
+            'master_reference',
+            'e4000000-0000-4000-8000-000000000002'::uuid
+        );
+    $co_asset_link_fixture$,
+    'The creative owner links the master asset to the fixture content item'
+);
+
+-- -------------------------------------------------------------------------
+-- Read-only proofs, in the fixture state above: two asset_links rows --
+-- slice 3's own (generation asset, director-ai-operator-authored) plus this
+-- slice's new one (master asset, creative-owner-authored).
+-- -------------------------------------------------------------------------
+
+set local role anon;
+
+select throws_ok(
+    $$select count(*) from public.asset_links$$,
+    '42501', null,
+    'Anonymous cannot select asset links'
+);
+
+set local role authenticated;
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000009';
+
+select results_eq(
+    $$select count(*) from public.asset_links$$,
+    $$values (0::bigint)$$,
+    'An authenticated profile with no active role sees no asset links'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000008';
+
+select results_eq(
+    $$select count(*) from public.asset_links$$,
+    $$values (0::bigint)$$,
+    'An administrator sees no asset links -- no cell on this table per Section 11'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000002';
+
+select results_eq(
+    $$select count(*) from public.asset_links$$,
+    $$values (1::bigint)$$,
+    'A creative owner sees only the asset link they authored'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000003';
+
+select results_eq(
+    $$select count(*) from public.asset_links$$,
+    $$values (1::bigint)$$,
+    'A director AI operator sees only the asset link whose asset is generation-typed'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000004';
+
+select results_eq(
+    $$select count(*) from public.asset_links$$,
+    $$values (2::bigint)$$,
+    'An editor sees every asset link -- unconditional select'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000005';
+
+select results_eq(
+    $$select count(*) from public.asset_links$$,
+    $$values (2::bigint)$$,
+    'An approver sees every asset link -- unconditional select'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000006';
+
+select results_eq(
+    $$select count(*) from public.asset_links$$,
+    $$values (2::bigint)$$,
+    'A campaign manager sees every asset link -- unconditional select despite the policy name'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000007';
+
+select results_eq(
+    $$select count(*) from public.asset_links$$,
+    $$values (1::bigint)$$,
+    'A publisher sees only the asset link whose asset is a master bound to an approved content_version'
+);
+
+-- -------------------------------------------------------------------------
+-- Insert-authorization proofs. Table-level INSERT is granted to all of
+-- authenticated (same shape as scenes/generation_attempts), so a role with
+-- no matching with-check policy gets a hard 42501 here, not a silently
+-- empty result.
+-- -------------------------------------------------------------------------
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000009';
+
+select throws_ok(
+    $test$
+        insert into public.asset_links (
+            asset_id, related_object_type, related_object_id, relation_type,
+            created_by
+        )
+        values (
+            'e9600000-0000-4000-8000-000000000001'::uuid,
+            'content_item', 'e5000000-0000-4000-8000-000000000003'::uuid,
+            'no_role_attempt',
+            'e4000000-0000-4000-8000-000000000009'::uuid
+        )
+    $test$,
+    '42501', null,
+    'An authenticated profile with no active role cannot insert an asset link'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000008';
+
+select throws_ok(
+    $test$
+        insert into public.asset_links (
+            asset_id, related_object_type, related_object_id, relation_type,
+            created_by
+        )
+        values (
+            'e9600000-0000-4000-8000-000000000001'::uuid,
+            'content_item', 'e5000000-0000-4000-8000-000000000003'::uuid,
+            'administrator_attempt',
+            'e4000000-0000-4000-8000-000000000008'::uuid
+        )
+    $test$,
+    '42501', null,
+    'An administrator cannot insert an asset link -- no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000005';
+
+select throws_ok(
+    $test$
+        insert into public.asset_links (
+            asset_id, related_object_type, related_object_id, relation_type,
+            created_by
+        )
+        values (
+            'e9600000-0000-4000-8000-000000000001'::uuid,
+            'content_item', 'e5000000-0000-4000-8000-000000000003'::uuid,
+            'approver_attempt',
+            'e4000000-0000-4000-8000-000000000005'::uuid
+        )
+    $test$,
+    '42501', null,
+    'An approver cannot insert an asset link -- select-only, no insert policy'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000006';
+
+select throws_ok(
+    $test$
+        insert into public.asset_links (
+            asset_id, related_object_type, related_object_id, relation_type,
+            created_by
+        )
+        values (
+            'e9600000-0000-4000-8000-000000000001'::uuid,
+            'content_item', 'e5000000-0000-4000-8000-000000000003'::uuid,
+            'campaign_manager_attempt',
+            'e4000000-0000-4000-8000-000000000006'::uuid
+        )
+    $test$,
+    '42501', null,
+    'A campaign manager cannot insert an asset link -- select-only, no insert policy'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000007';
+
+select throws_ok(
+    $test$
+        insert into public.asset_links (
+            asset_id, related_object_type, related_object_id, relation_type,
+            created_by
+        )
+        values (
+            'e9600000-0000-4000-8000-000000000001'::uuid,
+            'content_item', 'e5000000-0000-4000-8000-000000000003'::uuid,
+            'publisher_attempt',
+            'e4000000-0000-4000-8000-000000000007'::uuid
+        )
+    $test$,
+    '42501', null,
+    'A publisher cannot insert an asset link -- select-only, no insert policy'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000002';
+
+select throws_ok(
+    $test$
+        insert into public.asset_links (
+            asset_id, related_object_type, related_object_id, relation_type,
+            created_by
+        )
+        values (
+            'e9600000-0000-4000-8000-000000000001'::uuid,
+            'content_item', 'e5000000-0000-4000-8000-000000000003'::uuid,
+            'creative_owner_wrong_owner_attempt',
+            'e4000000-0000-4000-8000-000000000003'::uuid
+        )
+    $test$,
+    '42501', null,
+    'A creative owner cannot insert an asset link authored by someone else -- with check requires created_by = self'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000003';
+
+select throws_ok(
+    $test$
+        insert into public.asset_links (
+            asset_id, related_object_type, related_object_id, relation_type,
+            created_by
+        )
+        values (
+            'e9600000-0000-4000-8000-000000000001'::uuid,
+            'scene', 'e6000000-0000-4000-8000-000000000001'::uuid,
+            'director_ai_operator_wrong_type_attempt',
+            'e4000000-0000-4000-8000-000000000003'::uuid
+        )
+    $test$,
+    '42501', null,
+    'A director AI operator cannot link a non-generation asset -- with check requires asset_type = generation'
+);
+
+select lives_ok(
+    $dao_insert_link$
+        insert into public.asset_links (
+            id, asset_id, related_object_type, related_object_id,
+            relation_type, created_by
+        )
+        values (
+            'e9700000-0000-4000-8000-000000000003'::uuid,
+            'e9600000-0000-4000-8000-000000000004'::uuid,
+            'scene', 'e6000000-0000-4000-8000-000000000002'::uuid,
+            'reviewed_generation',
+            'e4000000-0000-4000-8000-000000000003'::uuid
+        )
+    $dao_insert_link$,
+    'A director AI operator can link a generation-typed asset'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000004';
+
+select lives_ok(
+    $editor_insert_link$
+        insert into public.asset_links (
+            id, asset_id, related_object_type, related_object_id,
+            relation_type, created_by
+        )
+        values (
+            'e9700000-0000-4000-8000-000000000004'::uuid,
+            'e9600000-0000-4000-8000-000000000005'::uuid,
+            'scene', 'e6000000-0000-4000-8000-000000000001'::uuid,
+            'editorial_reference',
+            'e4000000-0000-4000-8000-000000000004'::uuid
+        )
+    $editor_insert_link$,
+    'An editor can insert an asset link unconditionally'
+);
+
+-- -------------------------------------------------------------------------
+-- Update-immutability proof. Unlike assets, asset_links receives no UPDATE
+-- grant at all (S4-008 Section 3: "asset_links keeps select+insert only"),
+-- so this is a hard 42501 at the table-privilege level -- the same shape
+-- already proven for scenes and generation_attempts, not the is_empty()
+-- shape assets required.
+-- -------------------------------------------------------------------------
+
+select throws_ok(
+    $test$
+        update public.asset_links
+        set relation_type = 'mutated'
+        where id = 'e9700000-0000-4000-8000-000000000002'::uuid
+    $test$,
+    '42501', null,
+    'A creative owner cannot update an asset link, even one they authored -- immutable, no UPDATE grant exists for any role'
 );
 
 reset role;
