@@ -69,6 +69,8 @@ export const AUTHORIZATION_ACTIONS = [
   "qa_checklist_item.write",
   "qa_review.read",
   "qa_review.write",
+  "qa_review_item_result.read",
+  "qa_review_item_result.write",
   "publication.read",
   "publication.write",
   "publication.approve",
@@ -440,6 +442,26 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
     "publisher",
   ],
   "qa_review.write": ["approver"],
+
+  // qa_review_item_results (S4-005): its own action, not a reuse of
+  // qa_review.*, same convention as every other F4 sub-table. S4-008 mirrors
+  // qa_reviews' reader shape one-for-one on this table (creative_owner/
+  // director_ai_operator/editor "Related" via the same three
+  // s4_008_is_content_version_*_authored helpers, joined back through the
+  // parent qa_review; approver/campaign_manager plain select; publisher
+  // conditional on the parent content_version being 'approved') and its
+  // insert shape too (qa_review_item_results_approver_insert, approver
+  // only) -- the read/write role lists are therefore identical to
+  // qa_review.read/.write, just kept as separate actions per convention.
+  "qa_review_item_result.read": [
+    "creative_owner",
+    "director_ai_operator",
+    "editor",
+    "approver",
+    "campaign_manager",
+    "publisher",
+  ],
+  "qa_review_item_result.write": ["approver"],
 
   "publication.read": TEAM_ROLES,
   "publication.write": ["publisher"],
