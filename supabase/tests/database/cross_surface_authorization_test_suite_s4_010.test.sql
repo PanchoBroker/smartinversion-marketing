@@ -67,7 +67,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(43);
+select plan(78);
 
 -- -------------------------------------------------------------------------
 -- Fixtures: one profile per F4-relevant role (creative_owner, director_ai_
@@ -1017,6 +1017,653 @@ select throws_ok(
     $test$,
     '42501', null,
     'A director AI operator cannot update a generation attempt -- immutable, no UPDATE grant exists for any role'
+);
+
+-- Slice 2 leaves the role as 'authenticated' impersonating director_ai_
+-- operator. Reset before slice 3 opens its own fixtures, same lesson
+-- learned (and now recorded as a standing pattern) from slice 2's own
+-- first real failure.
+reset role;
+
+-- -------------------------------------------------------------------------
+-- Slice 3 of N: assets (Section 11). Unlike scenes/generation_attempts,
+-- assets is genuinely mutable (S4-004 grants select+insert+update to
+-- authenticated; only DELETE is withheld) and its S4-008 policies use two
+-- new shapes not seen in slices 1-2: "related" = direct participation
+-- (creative_owner: created_by = self) and type-scoped (director_ai_
+-- operator: asset_type = 'generation'), plus two roles -- campaign_manager
+-- and publisher -- whose SELECT depends on an exists() into a *different*
+-- table (asset_links, content_versions respectively). editor and approver
+-- are unconditional on this table (select+insert+update for editor,
+-- select+update only -- no insert -- for approver).
+--
+-- Audited against 20260814000000_...s4_008.sql Section 3 (read in full
+-- this session, lines 434-606): publisher's exists() targets
+-- content_versions, exactly the table slice 1 found missing a publisher
+-- SELECT policy for -- already fixed by that slice's own corrective
+-- migration (20260818000000_..., content_versions_publisher_approved_
+-- select), so it is not re-broken here. campaign_manager's exists()
+-- targets asset_links, which does carry an unconditional campaign_manager
+-- SELECT policy (asset_links_campaign_manager_related_select) -- also not
+-- blocked. No corrective migration accompanies this slice.
+--
+-- Critical semantic difference from slices 1-2, worth calling out
+-- explicitly (Regla de Comprensión de Código): scenes/generation_attempts
+-- never grant UPDATE to authenticated at all, so an unauthorized role's
+-- update attempt fails at the table-privilege level with a hard 42501
+-- before RLS is even evaluated. assets DOES grant UPDATE to authenticated,
+-- so for a role with no policy whose USING condition matches a given row,
+-- Postgres does not raise an error at all -- the row is simply excluded
+-- from the update's target set and the statement reports zero rows
+-- affected. Proving "this role cannot update this asset" therefore uses
+-- an UPDATE ... RETURNING wrapped in is_empty()/results_eq(), not
+-- throws_ok(), except for anon, who lacks the table grant entirely (same
+-- hard-42501 shape as before).
+--
+-- Fixture chain: two private_storage_objects + assets pairs (one 'master'
+-- owned by creative_owner, one 'generation' owned by director_ai_
+-- operator, following the exact column shapes proven by
+-- assets_rights_checksums_private_storage_s4_004.test.sql's own fixture),
+-- one asset_link binding the generation asset to the slice-1 draft scene
+-- (so campaign_manager's exists() has something to find), and the slice-1
+-- approved content_version rebound to the master asset via
+-- master_asset_id + a matching checksum (so publisher's exists() has an
+-- approved version to find). Four more private_storage_objects rows back
+-- the insert-authorization proofs below -- three consumed by real
+-- successful inserts, one spare reused across every denied/boundary
+-- insert attempt (none of them ever commit, so reuse cannot collide with
+-- the private_storage_object_id uniqueness constraint).
+-- -------------------------------------------------------------------------
+
+select lives_ok(
+    $storage_fixture_ab$
+        insert into storage.objects (id, bucket_id, name)
+        values
+            (
+                'e9510000-0000-4000-8000-000000000001'::uuid,
+                'masters-private',
+                'e9500000-0000-4000-8000-000000000001/1'
+            ),
+            (
+                'e9510000-0000-4000-8000-000000000002'::uuid,
+                'generation-private',
+                'e9500000-0000-4000-8000-000000000002/1'
+            );
+
+        insert into public.private_storage_objects (
+            id, bucket_id, object_key, storage_object_id, original_name,
+            safe_name, mime_type, size_bytes, checksum_sha256,
+            owner_profile_id, classification, state, origin, rights_basis,
+            rights_expires_at, created_at
+        )
+        values
+            (
+                'e9500000-0000-4000-8000-000000000001'::uuid,
+                'masters-private',
+                'e9500000-0000-4000-8000-000000000001/1',
+                'e9510000-0000-4000-8000-000000000001'::uuid,
+                'slice3-master.mp4', 'slice3-master.mp4', 'video/mp4', 2048,
+                repeat('a', 64),
+                'e4000000-0000-4000-8000-000000000002'::uuid,
+                'confidential', 'available', 'editorial-export', 'owned',
+                null, now()
+            ),
+            (
+                'e9500000-0000-4000-8000-000000000002'::uuid,
+                'generation-private',
+                'e9500000-0000-4000-8000-000000000002/1',
+                'e9510000-0000-4000-8000-000000000002'::uuid,
+                'slice3-generation.mp4', 'slice3-generation.mp4',
+                'video/mp4', 2048,
+                repeat('b', 64),
+                'e4000000-0000-4000-8000-000000000003'::uuid,
+                'confidential', 'available', 'synthetic-generation', 'owned',
+                null, now()
+            );
+    $storage_fixture_ab$,
+    'Private storage objects for one master and one generation asset are created'
+);
+
+select lives_ok(
+    $assets_fixture_ab$
+        insert into public.assets (
+            id, private_storage_object_id, asset_type, rights_status,
+            license_reference, created_by
+        )
+        values
+            (
+                'e9600000-0000-4000-8000-000000000001'::uuid,
+                'e9500000-0000-4000-8000-000000000001'::uuid,
+                'master', 'owned', null,
+                'e4000000-0000-4000-8000-000000000002'::uuid
+            ),
+            (
+                'e9600000-0000-4000-8000-000000000002'::uuid,
+                'e9500000-0000-4000-8000-000000000002'::uuid,
+                'generation', 'owned', null,
+                'e4000000-0000-4000-8000-000000000003'::uuid
+            );
+    $assets_fixture_ab$,
+    'A master asset (creative-owner authored) and a generation asset (director-ai-operator authored) are created'
+);
+
+select lives_ok(
+    $asset_link_fixture$
+        insert into public.asset_links (
+            id, asset_id, related_object_type, related_object_id,
+            relation_type, created_by
+        )
+        values (
+            'e9700000-0000-4000-8000-000000000001'::uuid,
+            'e9600000-0000-4000-8000-000000000002'::uuid,
+            'scene',
+            'e6000000-0000-4000-8000-000000000001'::uuid,
+            'generated_from',
+            'e4000000-0000-4000-8000-000000000003'::uuid
+        );
+    $asset_link_fixture$,
+    'The generation asset is linked to the slice-1 draft scene'
+);
+
+-- content_versions.locked_at defaults to now() and is always set from the
+-- moment of insert (20260802000000_content_items_and_versions_s3_003.sql,
+-- table comment); content_versions_reject_locked_mutation_trigger (before
+-- update only) therefore rejects ANY later update to master_asset_id on
+-- ANY existing row, including the slice-1 approved version -- confirmed by
+-- this slice's own first real run. A master binding can only be created
+-- at insert time, so a new content_version is created here already bound,
+-- rather than retrofitting the slice-1 row.
+select lives_ok(
+    $bind_master_via_new_version$
+        insert into public.content_versions (
+            id, content_item_id, version_number, status, script,
+            master_asset_id, checksum
+        )
+        values (
+            'e9800000-0000-4000-8000-000000000001'::uuid,
+            'e5000000-0000-4000-8000-000000000003'::uuid,
+            3, 'approved',
+            'S4-010 fixture script (approved, bound to master asset at creation)',
+            'e9600000-0000-4000-8000-000000000001'::uuid,
+            repeat('a', 64)
+        );
+    $bind_master_via_new_version$,
+    'A new approved content_version, bound to the master asset at insert time, is created'
+);
+
+select lives_ok(
+    $storage_fixture_cdef$
+        insert into storage.objects (id, bucket_id, name)
+        values
+            (
+                'e9510000-0000-4000-8000-000000000003'::uuid,
+                'masters-private',
+                'e9500000-0000-4000-8000-000000000003/1'
+            ),
+            (
+                'e9510000-0000-4000-8000-000000000004'::uuid,
+                'generation-private',
+                'e9500000-0000-4000-8000-000000000004/1'
+            ),
+            (
+                'e9510000-0000-4000-8000-000000000005'::uuid,
+                'masters-private',
+                'e9500000-0000-4000-8000-000000000005/1'
+            ),
+            (
+                'e9510000-0000-4000-8000-000000000006'::uuid,
+                'masters-private',
+                'e9500000-0000-4000-8000-000000000006/1'
+            );
+
+        insert into public.private_storage_objects (
+            id, bucket_id, object_key, storage_object_id, original_name,
+            safe_name, mime_type, size_bytes, checksum_sha256,
+            owner_profile_id, classification, state, origin, rights_basis,
+            rights_expires_at, created_at
+        )
+        values
+            (
+                'e9500000-0000-4000-8000-000000000003'::uuid,
+                'masters-private',
+                'e9500000-0000-4000-8000-000000000003/1',
+                'e9510000-0000-4000-8000-000000000003'::uuid,
+                'slice3-creative-owner-insert.mp4',
+                'slice3-creative-owner-insert.mp4', 'video/mp4', 2048,
+                repeat('c', 64),
+                'e4000000-0000-4000-8000-000000000002'::uuid,
+                'confidential', 'available', 'editorial-export', 'owned',
+                null, now()
+            ),
+            (
+                'e9500000-0000-4000-8000-000000000004'::uuid,
+                'generation-private',
+                'e9500000-0000-4000-8000-000000000004/1',
+                'e9510000-0000-4000-8000-000000000004'::uuid,
+                'slice3-dao-insert.mp4', 'slice3-dao-insert.mp4',
+                'video/mp4', 2048,
+                repeat('d', 64),
+                'e4000000-0000-4000-8000-000000000003'::uuid,
+                'confidential', 'available', 'synthetic-generation', 'owned',
+                null, now()
+            ),
+            (
+                'e9500000-0000-4000-8000-000000000005'::uuid,
+                'masters-private',
+                'e9500000-0000-4000-8000-000000000005/1',
+                'e9510000-0000-4000-8000-000000000005'::uuid,
+                'slice3-editor-insert.mp4', 'slice3-editor-insert.mp4',
+                'video/mp4', 2048,
+                repeat('e', 64),
+                'e4000000-0000-4000-8000-000000000004'::uuid,
+                'confidential', 'available', 'editorial-export', 'owned',
+                null, now()
+            ),
+            (
+                'e9500000-0000-4000-8000-000000000006'::uuid,
+                'masters-private',
+                'e9500000-0000-4000-8000-000000000006/1',
+                'e9510000-0000-4000-8000-000000000006'::uuid,
+                'slice3-spare.mp4', 'slice3-spare.mp4', 'video/mp4', 2048,
+                repeat('f', 64),
+                'e4000000-0000-4000-8000-000000000001'::uuid,
+                'confidential', 'available', 'editorial-export', 'owned',
+                null, now()
+            );
+    $storage_fixture_cdef$,
+    'Four more private storage objects are created to back the insert-authorization proofs (three consumed by real inserts, one spare reused by every denied attempt)'
+);
+
+-- -------------------------------------------------------------------------
+-- Read-only proofs, in the fixture state above (one master asset visible
+-- to creative_owner/publisher, one generation asset visible to director_
+-- ai_operator/campaign_manager, both visible to editor/approver).
+-- -------------------------------------------------------------------------
+
+set local role anon;
+
+select throws_ok(
+    $$select count(*) from public.assets$$,
+    '42501', null,
+    'Anonymous cannot select assets'
+);
+
+set local role authenticated;
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000009';
+
+select results_eq(
+    $$select count(*) from public.assets$$,
+    $$values (0::bigint)$$,
+    'An authenticated profile with no active role sees no assets'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000008';
+
+select results_eq(
+    $$select count(*) from public.assets$$,
+    $$values (0::bigint)$$,
+    'An administrator sees no assets -- no cell on this table per Section 11'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000002';
+
+select results_eq(
+    $$select count(*) from public.assets$$,
+    $$values (1::bigint)$$,
+    'A creative owner sees only the asset they authored (the master asset)'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000003';
+
+select results_eq(
+    $$select count(*) from public.assets$$,
+    $$values (1::bigint)$$,
+    'A director AI operator sees only generation-typed assets'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000004';
+
+select results_eq(
+    $$select count(*) from public.assets$$,
+    $$values (2::bigint)$$,
+    'An editor sees every asset -- unconditional select'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000005';
+
+select results_eq(
+    $$select count(*) from public.assets$$,
+    $$values (2::bigint)$$,
+    'An approver sees every asset -- unconditional select'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000006';
+
+select results_eq(
+    $$select count(*) from public.assets$$,
+    $$values (1::bigint)$$,
+    'A campaign manager sees only the asset that has an asset_link (the generation asset)'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000007';
+
+select results_eq(
+    $$select count(*) from public.assets$$,
+    $$values (1::bigint)$$,
+    'A publisher sees only the master asset bound to an approved content_version'
+);
+
+-- -------------------------------------------------------------------------
+-- Insert-authorization proofs. WITH CHECK has no matching row to exclude
+-- silently (unlike UPDATE below) -- a role with no permissive insert
+-- policy, or one whose row fails every permissive policy's WITH CHECK,
+-- gets a hard 42501 here, same mechanism already proven in slice 2.
+-- -------------------------------------------------------------------------
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000009';
+
+select throws_ok(
+    $test$
+        insert into public.assets (
+            private_storage_object_id, asset_type, rights_status, created_by
+        )
+        values (
+            'e9500000-0000-4000-8000-000000000006'::uuid,
+            'source', 'owned', 'e4000000-0000-4000-8000-000000000009'::uuid
+        )
+    $test$,
+    '42501', null,
+    'An authenticated profile with no active role cannot insert an asset'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000008';
+
+select throws_ok(
+    $test$
+        insert into public.assets (
+            private_storage_object_id, asset_type, rights_status, created_by
+        )
+        values (
+            'e9500000-0000-4000-8000-000000000006'::uuid,
+            'source', 'owned', 'e4000000-0000-4000-8000-000000000008'::uuid
+        )
+    $test$,
+    '42501', null,
+    'An administrator cannot insert an asset -- no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000005';
+
+select throws_ok(
+    $test$
+        insert into public.assets (
+            private_storage_object_id, asset_type, rights_status, created_by
+        )
+        values (
+            'e9500000-0000-4000-8000-000000000006'::uuid,
+            'source', 'owned', 'e4000000-0000-4000-8000-000000000005'::uuid
+        )
+    $test$,
+    '42501', null,
+    'An approver cannot insert an asset -- select and update only, no insert policy'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000006';
+
+select throws_ok(
+    $test$
+        insert into public.assets (
+            private_storage_object_id, asset_type, rights_status, created_by
+        )
+        values (
+            'e9500000-0000-4000-8000-000000000006'::uuid,
+            'source', 'owned', 'e4000000-0000-4000-8000-000000000006'::uuid
+        )
+    $test$,
+    '42501', null,
+    'A campaign manager cannot insert an asset -- no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000007';
+
+select throws_ok(
+    $test$
+        insert into public.assets (
+            private_storage_object_id, asset_type, rights_status, created_by
+        )
+        values (
+            'e9500000-0000-4000-8000-000000000006'::uuid,
+            'source', 'owned', 'e4000000-0000-4000-8000-000000000007'::uuid
+        )
+    $test$,
+    '42501', null,
+    'A publisher cannot insert an asset -- no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000002';
+
+select throws_ok(
+    $test$
+        insert into public.assets (
+            private_storage_object_id, asset_type, rights_status, created_by
+        )
+        values (
+            'e9500000-0000-4000-8000-000000000006'::uuid,
+            'source', 'owned', 'e4000000-0000-4000-8000-000000000003'::uuid
+        )
+    $test$,
+    '42501', null,
+    'A creative owner cannot insert an asset authored by someone else -- with check requires created_by = self'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000003';
+
+select throws_ok(
+    $test$
+        insert into public.assets (
+            private_storage_object_id, asset_type, rights_status, created_by
+        )
+        values (
+            'e9500000-0000-4000-8000-000000000006'::uuid,
+            'master', 'owned', 'e4000000-0000-4000-8000-000000000003'::uuid
+        )
+    $test$,
+    '42501', null,
+    'A director AI operator cannot insert a non-generation asset -- with check requires asset_type = generation'
+);
+
+select lives_ok(
+    $dao_insert_asset$
+        insert into public.assets (
+            id, private_storage_object_id, asset_type, rights_status,
+            created_by
+        )
+        values (
+            'e9600000-0000-4000-8000-000000000004'::uuid,
+            'e9500000-0000-4000-8000-000000000004'::uuid,
+            'generation', 'owned',
+            'e4000000-0000-4000-8000-000000000003'::uuid
+        )
+    $dao_insert_asset$,
+    'A director AI operator can insert a new generation asset'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000002';
+
+select lives_ok(
+    $co_insert_asset$
+        insert into public.assets (
+            id, private_storage_object_id, asset_type, rights_status,
+            created_by
+        )
+        values (
+            'e9600000-0000-4000-8000-000000000003'::uuid,
+            'e9500000-0000-4000-8000-000000000003'::uuid,
+            'source', 'owned',
+            'e4000000-0000-4000-8000-000000000002'::uuid
+        )
+    $co_insert_asset$,
+    'A creative owner can insert a new asset authored by themselves'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000004';
+
+select lives_ok(
+    $editor_insert_asset$
+        insert into public.assets (
+            id, private_storage_object_id, asset_type, rights_status,
+            created_by
+        )
+        values (
+            'e9600000-0000-4000-8000-000000000005'::uuid,
+            'e9500000-0000-4000-8000-000000000005'::uuid,
+            'source', 'owned',
+            'e4000000-0000-4000-8000-000000000004'::uuid
+        )
+    $editor_insert_asset$,
+    'An editor can insert a new asset unconditionally'
+);
+
+-- -------------------------------------------------------------------------
+-- Update-authorization proofs. assets grants UPDATE to authenticated, so a
+-- role whose USING condition excludes a row does not get an exception --
+-- the statement simply matches zero rows. is_empty()/results_eq() on an
+-- UPDATE ... RETURNING prove that directly; only anon (no table grant at
+-- all) still throws.
+-- -------------------------------------------------------------------------
+
+set local role anon;
+
+select throws_ok(
+    $test$
+        update public.assets
+        set rights_status = 'anon_attempt'
+        where id = 'e9600000-0000-4000-8000-000000000001'::uuid
+        returning id
+    $test$,
+    '42501', null,
+    'Anonymous cannot update an asset -- no table privilege at all'
+);
+
+set local role authenticated;
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000009';
+
+select is_empty(
+    $$
+        update public.assets
+        set rights_status = 'no_role_attempt'
+        where id = 'e9600000-0000-4000-8000-000000000001'::uuid
+        returning id
+    $$,
+    'An authenticated profile with no active role updates zero assets -- no policy matches'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000008';
+
+select is_empty(
+    $$
+        update public.assets
+        set rights_status = 'administrator_attempt'
+        where id = 'e9600000-0000-4000-8000-000000000001'::uuid
+        returning id
+    $$,
+    'An administrator updates zero assets -- no policy exists for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000006';
+
+select is_empty(
+    $$
+        update public.assets
+        set rights_status = 'campaign_manager_attempt'
+        where id = 'e9600000-0000-4000-8000-000000000001'::uuid
+        returning id
+    $$,
+    'A campaign manager updates zero assets -- select-only, no update policy'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000007';
+
+select is_empty(
+    $$
+        update public.assets
+        set rights_status = 'publisher_attempt'
+        where id = 'e9600000-0000-4000-8000-000000000001'::uuid
+        returning id
+    $$,
+    'A publisher updates zero assets -- select-only, no update policy'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000002';
+
+select is_empty(
+    $$
+        update public.assets
+        set rights_status = 'creative_owner_denied_attempt'
+        where id = 'e9600000-0000-4000-8000-000000000002'::uuid
+        returning id
+    $$,
+    'A creative owner updates zero rows on an asset they do not own'
+);
+
+select results_eq(
+    $$
+        update public.assets
+        set license_reference = 'license://creative-owner-update'
+        where id = 'e9600000-0000-4000-8000-000000000001'::uuid
+        returning id
+    $$,
+    $$values ('e9600000-0000-4000-8000-000000000001'::uuid)$$,
+    'A creative owner can update the asset they authored'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000003';
+
+select is_empty(
+    $$
+        update public.assets
+        set rights_status = 'director_ai_operator_denied_attempt'
+        where id = 'e9600000-0000-4000-8000-000000000001'::uuid
+        returning id
+    $$,
+    'A director AI operator updates zero rows on a non-generation asset'
+);
+
+select results_eq(
+    $$
+        update public.assets
+        set rights_status = 'director_ai_operator_reviewed'
+        where id = 'e9600000-0000-4000-8000-000000000002'::uuid
+        returning id
+    $$,
+    $$values ('e9600000-0000-4000-8000-000000000002'::uuid)$$,
+    'A director AI operator can update a generation-typed asset'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000004';
+
+select results_eq(
+    $$
+        update public.assets
+        set rights_status = 'editor_reviewed'
+        where id = 'e9600000-0000-4000-8000-000000000001'::uuid
+        returning id
+    $$,
+    $$values ('e9600000-0000-4000-8000-000000000001'::uuid)$$,
+    'An editor can update any asset unconditionally'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000005';
+
+select results_eq(
+    $$
+        update public.assets
+        set rights_status = 'approver_reviewed'
+        where id = 'e9600000-0000-4000-8000-000000000002'::uuid
+        returning id
+    $$,
+    $$values ('e9600000-0000-4000-8000-000000000002'::uuid)$$,
+    'An approver can update any asset unconditionally'
 );
 
 reset role;
