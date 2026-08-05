@@ -63,6 +63,8 @@ export const AUTHORIZATION_ACTIONS = [
   "asset.write",
   "asset_link.read",
   "asset_link.write",
+  "qa_checklist.read",
+  "qa_checklist.write",
   "publication.read",
   "publication.write",
   "publication.approve",
@@ -370,6 +372,26 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
     "publisher",
   ],
   "asset_link.write": ["creative_owner", "director_ai_operator", "editor"],
+
+  // qa_checklists (S4-005), docs/access-control-matrix.md Section 11 /
+  // S4-008 migration Section 4. Unlike assets/asset_links, `approver` is
+  // this table's ONLY role with an insert policy (qa_checklists_approver_
+  // insert) -- creative_owner, director_ai_operator, editor and
+  // campaign_manager each hold an unconditional select policy only (no
+  // "Related"/"Assigned" qualifier here, unlike their read cells on
+  // qa_reviews/qa_defects further down the same migration section). No
+  // publisher policy exists on qa_checklists at all (verified by reading
+  // the migration's Section 4 in full), so publisher is deliberately
+  // excluded from qa_checklist.read, same convention as scene_acceptance_
+  // criterion.read's absent publisher cell.
+  "qa_checklist.read": [
+    "creative_owner",
+    "director_ai_operator",
+    "editor",
+    "approver",
+    "campaign_manager",
+  ],
+  "qa_checklist.write": ["approver"],
 
   "publication.read": TEAM_ROLES,
   "publication.write": ["publisher"],
