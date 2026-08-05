@@ -67,6 +67,8 @@ export const AUTHORIZATION_ACTIONS = [
   "qa_checklist.write",
   "qa_checklist_item.read",
   "qa_checklist_item.write",
+  "qa_review.read",
+  "qa_review.write",
   "publication.read",
   "publication.write",
   "publication.approve",
@@ -411,6 +413,33 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
     "campaign_manager",
   ],
   "qa_checklist_item.write": ["approver"],
+
+  // qa_reviews (S4-005): its own action, not a reuse of qa_checklist.*,
+  // same convention as every other F4 sub-table. Unlike qa_checklists/
+  // qa_checklist_items, S4-008 gives creative_owner/director_ai_operator/
+  // editor "Related R" reader cells here instead of an unconditional
+  // select (qa_reviews_creative_owner_related_select/_director_ai_
+  // operator_related_select/_editor_related_select, via the
+  // s4_008_is_content_version_*_authored helpers, Section 4 read in full)
+  // -- this coarse layer still admits all six roles the matrix names (same
+  // admit-then-let-RLS-narrow convention as asset.read's publisher cell),
+  // including publisher, whose own select policy here is conditional on
+  // the content_version already being 'approved'
+  // (qa_reviews_publisher_approved_select) -- the one reader cell
+  // qa_checklists/qa_checklist_items exclude entirely but qa_reviews does
+  // not. Insert stays approver-only (qa_reviews_approver_insert), matching
+  // its parent qa_checklists exactly; the terminal-decision update
+  // (qa_reviews_approver_update) is left to a future command endpoint, not
+  // gated by this action.
+  "qa_review.read": [
+    "creative_owner",
+    "director_ai_operator",
+    "editor",
+    "approver",
+    "campaign_manager",
+    "publisher",
+  ],
+  "qa_review.write": ["approver"],
 
   "publication.read": TEAM_ROLES,
   "publication.write": ["publisher"],
