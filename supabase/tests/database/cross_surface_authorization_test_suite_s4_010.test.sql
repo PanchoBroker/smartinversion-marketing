@@ -67,7 +67,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(22);
+select plan(43);
 
 -- -------------------------------------------------------------------------
 -- Fixtures: one profile per F4-relevant role (creative_owner, director_ai_
@@ -618,6 +618,405 @@ select throws_ok(
     $test$,
     '42501', null,
     'A publisher cannot insert a scene -- no insert policy for this role'
+);
+
+-- Slice 1 leaves the role as 'authenticated' impersonating publisher (the
+-- last role switch above). Every slice-1 fixture above ran unrestricted
+-- under the connection's own default role -- reset back to it here before
+-- slice 2 opens its own fixtures the same way, instead of silently
+-- inheriting slice 1's final role/claim (the real failure this session:
+-- the first slice-2 fixture insert died with 42501 because it ran as
+-- publisher, who has no insert policy on scene_prompt_versions).
+reset role;
+
+-- -------------------------------------------------------------------------
+-- Slice 2 of N: generation_attempts (Section 11). Read-only visibility is
+-- unconditional per has_active_role() for creative_owner, director_ai_
+-- operator, approver and campaign_manager; editor's own policy additionally
+-- requires an attached generation_attempt_evaluations row with
+-- decision = 'select_for_editing' (none exists in this fixture, so editor
+-- sees zero rows throughout this slice); publisher has no policy at all on
+-- this table per Section 11 ("-" cell), same zero-row shape as
+-- administrator. Insert is restricted to director_ai_operator alone -- the
+-- only role with a with-check policy on this table -- even though S4-008
+-- grants the bare INSERT table privilege to the whole authenticated role,
+-- the same "grant is necessary but not sufficient" shape already proven
+-- for scenes/creative_owner above.
+--
+-- Audited against 20260814000000_production_qa_role_based_rls_s4_008.sql
+-- Section 2 (read in full this session, lines ~280-376): every exists()
+-- subquery this domain's policies use (editor's generation_attempt_
+-- evaluations lookup) targets a table that itself grants that same role a
+-- matching SELECT policy -- the slice-1 regression class (a blocked
+-- subquery masquerading as "0 rows means the condition failed") does not
+-- reproduce here. No corrective migration accompanies this slice.
+--
+-- Fixture chain: one scene_prompt_versions row under the slice-1 draft-
+-- version scene (e6000000-...0001), one scene_generation_budgets row
+-- resolved via resolve_scene_generation_budget() for the 'test'
+-- environment (the 3+3 default budget setting is seeded by S4-003's own
+-- migration for all four environments, not by seed.sql -- confirmed this
+-- session by reading 20260809000000_generation_attempts_evaluations_
+-- budgets_s4_003.sql directly, so no additional settings fixture is needed
+-- here), and one generation_attempts row inserted directly (bypassing RLS,
+-- same as slice 1 does for its own scenes fixture) to have known data for
+-- the read-only proofs below. s4_003_validate_generation_attempt (read in
+-- full this session) still runs on every insert regardless of role: each
+-- fixture/proof row below satisfies its prompt-match, budget-existence and
+-- attempt_number-sequence checks so that RLS, not the trigger, is what
+-- actually gates or admits every attempt.
+-- -------------------------------------------------------------------------
+
+select lives_ok(
+    $prompt_version_fixture$
+        insert into public.scene_prompt_versions (
+            id, scene_id, version_number, prompt_text, created_by
+        )
+        values (
+            'e7000000-0000-4000-8000-000000000001'::uuid,
+            'e6000000-0000-4000-8000-000000000001'::uuid,
+            1,
+            'S4-010 fixture generation prompt',
+            'e4000000-0000-4000-8000-000000000002'::uuid
+        );
+    $prompt_version_fixture$,
+    'A prompt version is created under the slice-1 draft-version scene'
+);
+
+set local role service_role;
+
+select lives_ok(
+    $$
+        select public.resolve_scene_generation_budget(
+            'e6000000-0000-4000-8000-000000000001'::uuid,
+            'test',
+            'e4000000-0000-4000-8000-000000000003'::uuid
+        )
+    $$,
+    'The generation budget for the fixture scene resolves in the test environment'
+);
+
+reset role;
+
+select lives_ok(
+    $generation_attempt_fixture$
+        insert into public.generation_attempts (
+            id, scene_id, prompt_version_id, attempt_number, attempt_phase,
+            prompt_text_snapshot, provider_code, model_identifier,
+            changed_variable, result_reference, duration_seconds, created_by
+        )
+        values (
+            'e8000000-0000-4000-8000-000000000001'::uuid,
+            'e6000000-0000-4000-8000-000000000001'::uuid,
+            'e7000000-0000-4000-8000-000000000001'::uuid,
+            1, 'exploration',
+            'S4-010 fixture generation prompt',
+            'synthetic', 'synthetic-model-v1',
+            'S4-010 fixture variable',
+            jsonb_build_object(
+                'kind', 'synthetic',
+                'synthetic_locator', 's4-010-fixture-001'
+            ),
+            5.000,
+            'e4000000-0000-4000-8000-000000000003'::uuid
+        );
+    $generation_attempt_fixture$,
+    'A first generation attempt is created, authored by the director-ai-operator profile'
+);
+
+-- -------------------------------------------------------------------------
+-- Read-only proofs.
+-- -------------------------------------------------------------------------
+
+set local role anon;
+
+select throws_ok(
+    $$select count(*) from public.generation_attempts$$,
+    '42501', null,
+    'Anonymous cannot select generation attempts'
+);
+
+set local role authenticated;
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000009';
+
+select results_eq(
+    $$select count(*) from public.generation_attempts$$,
+    $$values (0::bigint)$$,
+    'An authenticated profile with no active role sees no generation attempts'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000008';
+
+select results_eq(
+    $$select count(*) from public.generation_attempts$$,
+    $$values (0::bigint)$$,
+    'An administrator sees no generation attempts -- no cell on this table per Section 11'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000002';
+
+select results_eq(
+    $$select count(*) from public.generation_attempts$$,
+    $$values (1::bigint)$$,
+    'A creative owner sees the fixture generation attempt'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000003';
+
+select results_eq(
+    $$select count(*) from public.generation_attempts$$,
+    $$values (1::bigint)$$,
+    'A director AI operator sees the fixture generation attempt'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000004';
+
+select results_eq(
+    $$select count(*) from public.generation_attempts$$,
+    $$values (0::bigint)$$,
+    'An editor sees no generation attempts -- none carries a select_for_editing evaluation yet'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000005';
+
+select results_eq(
+    $$select count(*) from public.generation_attempts$$,
+    $$values (1::bigint)$$,
+    'An approver sees the fixture generation attempt'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000006';
+
+select results_eq(
+    $$select count(*) from public.generation_attempts$$,
+    $$values (1::bigint)$$,
+    'A campaign manager sees the fixture generation attempt'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000007';
+
+select results_eq(
+    $$select count(*) from public.generation_attempts$$,
+    $$values (0::bigint)$$,
+    'A publisher sees no generation attempts -- no policy exists for this role per Section 11'
+);
+
+-- -------------------------------------------------------------------------
+-- Mutation proofs: only director_ai_operator's insert actually completes;
+-- every other role's insert attempt is rejected (table-level INSERT is
+-- granted to all of authenticated, but no with-check policy exists for
+-- them); nobody, including director_ai_operator, can update -- generation_
+-- attempts is immutable, no UPDATE grant exists for any role.
+-- -------------------------------------------------------------------------
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000009';
+
+select throws_ok(
+    $test$
+        insert into public.generation_attempts (
+            scene_id, prompt_version_id, attempt_number, attempt_phase,
+            prompt_text_snapshot, provider_code, model_identifier,
+            changed_variable, result_reference, duration_seconds, created_by
+        )
+        values (
+            'e6000000-0000-4000-8000-000000000001'::uuid,
+            'e7000000-0000-4000-8000-000000000001'::uuid,
+            2, 'exploration',
+            'S4-010 fixture generation prompt',
+            'synthetic', 'synthetic-model-v1',
+            'No-role attempt',
+            jsonb_build_object('kind', 'synthetic', 'synthetic_locator', 's4-010-fixture-002'),
+            6.000,
+            'e4000000-0000-4000-8000-000000000003'::uuid
+        )
+    $test$,
+    '42501', null,
+    'An authenticated profile with no active role cannot insert a generation attempt'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000008';
+
+select throws_ok(
+    $test$
+        insert into public.generation_attempts (
+            scene_id, prompt_version_id, attempt_number, attempt_phase,
+            prompt_text_snapshot, provider_code, model_identifier,
+            changed_variable, result_reference, duration_seconds, created_by
+        )
+        values (
+            'e6000000-0000-4000-8000-000000000001'::uuid,
+            'e7000000-0000-4000-8000-000000000001'::uuid,
+            2, 'exploration',
+            'S4-010 fixture generation prompt',
+            'synthetic', 'synthetic-model-v1',
+            'Administrator attempt',
+            jsonb_build_object('kind', 'synthetic', 'synthetic_locator', 's4-010-fixture-002'),
+            6.000,
+            'e4000000-0000-4000-8000-000000000003'::uuid
+        )
+    $test$,
+    '42501', null,
+    'An administrator cannot insert a generation attempt -- no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000002';
+
+select throws_ok(
+    $test$
+        insert into public.generation_attempts (
+            scene_id, prompt_version_id, attempt_number, attempt_phase,
+            prompt_text_snapshot, provider_code, model_identifier,
+            changed_variable, result_reference, duration_seconds, created_by
+        )
+        values (
+            'e6000000-0000-4000-8000-000000000001'::uuid,
+            'e7000000-0000-4000-8000-000000000001'::uuid,
+            2, 'exploration',
+            'S4-010 fixture generation prompt',
+            'synthetic', 'synthetic-model-v1',
+            'Creative owner attempt',
+            jsonb_build_object('kind', 'synthetic', 'synthetic_locator', 's4-010-fixture-002'),
+            6.000,
+            'e4000000-0000-4000-8000-000000000002'::uuid
+        )
+    $test$,
+    '42501', null,
+    'A creative owner cannot insert a generation attempt -- no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000004';
+
+select throws_ok(
+    $test$
+        insert into public.generation_attempts (
+            scene_id, prompt_version_id, attempt_number, attempt_phase,
+            prompt_text_snapshot, provider_code, model_identifier,
+            changed_variable, result_reference, duration_seconds, created_by
+        )
+        values (
+            'e6000000-0000-4000-8000-000000000001'::uuid,
+            'e7000000-0000-4000-8000-000000000001'::uuid,
+            2, 'exploration',
+            'S4-010 fixture generation prompt',
+            'synthetic', 'synthetic-model-v1',
+            'Editor attempt',
+            jsonb_build_object('kind', 'synthetic', 'synthetic_locator', 's4-010-fixture-002'),
+            6.000,
+            'e4000000-0000-4000-8000-000000000004'::uuid
+        )
+    $test$,
+    '42501', null,
+    'An editor cannot insert a generation attempt -- no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000005';
+
+select throws_ok(
+    $test$
+        insert into public.generation_attempts (
+            scene_id, prompt_version_id, attempt_number, attempt_phase,
+            prompt_text_snapshot, provider_code, model_identifier,
+            changed_variable, result_reference, duration_seconds, created_by
+        )
+        values (
+            'e6000000-0000-4000-8000-000000000001'::uuid,
+            'e7000000-0000-4000-8000-000000000001'::uuid,
+            2, 'exploration',
+            'S4-010 fixture generation prompt',
+            'synthetic', 'synthetic-model-v1',
+            'Approver attempt',
+            jsonb_build_object('kind', 'synthetic', 'synthetic_locator', 's4-010-fixture-002'),
+            6.000,
+            'e4000000-0000-4000-8000-000000000005'::uuid
+        )
+    $test$,
+    '42501', null,
+    'An approver cannot insert a generation attempt -- no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000006';
+
+select throws_ok(
+    $test$
+        insert into public.generation_attempts (
+            scene_id, prompt_version_id, attempt_number, attempt_phase,
+            prompt_text_snapshot, provider_code, model_identifier,
+            changed_variable, result_reference, duration_seconds, created_by
+        )
+        values (
+            'e6000000-0000-4000-8000-000000000001'::uuid,
+            'e7000000-0000-4000-8000-000000000001'::uuid,
+            2, 'exploration',
+            'S4-010 fixture generation prompt',
+            'synthetic', 'synthetic-model-v1',
+            'Campaign manager attempt',
+            jsonb_build_object('kind', 'synthetic', 'synthetic_locator', 's4-010-fixture-002'),
+            6.000,
+            'e4000000-0000-4000-8000-000000000006'::uuid
+        )
+    $test$,
+    '42501', null,
+    'A campaign manager cannot insert a generation attempt -- no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000007';
+
+select throws_ok(
+    $test$
+        insert into public.generation_attempts (
+            scene_id, prompt_version_id, attempt_number, attempt_phase,
+            prompt_text_snapshot, provider_code, model_identifier,
+            changed_variable, result_reference, duration_seconds, created_by
+        )
+        values (
+            'e6000000-0000-4000-8000-000000000001'::uuid,
+            'e7000000-0000-4000-8000-000000000001'::uuid,
+            2, 'exploration',
+            'S4-010 fixture generation prompt',
+            'synthetic', 'synthetic-model-v1',
+            'Publisher attempt',
+            jsonb_build_object('kind', 'synthetic', 'synthetic_locator', 's4-010-fixture-002'),
+            6.000,
+            'e4000000-0000-4000-8000-000000000007'::uuid
+        )
+    $test$,
+    '42501', null,
+    'A publisher cannot insert a generation attempt -- no policy exists for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000003';
+
+select lives_ok(
+    $dao_insert_attempt$
+        insert into public.generation_attempts (
+            id, scene_id, prompt_version_id, attempt_number, attempt_phase,
+            prompt_text_snapshot, provider_code, model_identifier,
+            changed_variable, result_reference, duration_seconds, created_by
+        )
+        values (
+            'e8000000-0000-4000-8000-000000000002'::uuid,
+            'e6000000-0000-4000-8000-000000000001'::uuid,
+            'e7000000-0000-4000-8000-000000000001'::uuid,
+            2, 'exploration',
+            'S4-010 fixture generation prompt',
+            'synthetic', 'synthetic-model-v1',
+            'S4-010 director-ai-operator-created attempt',
+            jsonb_build_object('kind', 'synthetic', 'synthetic_locator', 's4-010-fixture-002'),
+            6.000,
+            'e4000000-0000-4000-8000-000000000003'::uuid
+        )
+    $dao_insert_attempt$,
+    'A director AI operator can insert a new generation attempt'
+);
+
+select throws_ok(
+    $test$
+        update public.generation_attempts
+        set changed_variable = 'S4-010 mutation attempt'
+        where id = 'e8000000-0000-4000-8000-000000000002'::uuid
+    $test$,
+    '42501', null,
+    'A director AI operator cannot update a generation attempt -- immutable, no UPDATE grant exists for any role'
 );
 
 reset role;
