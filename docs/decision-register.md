@@ -5,8 +5,8 @@
 - **Work item:** S0-019 / Gate G0 review
 - **Status:** Under Gate G0 review
 - **Owner:** Smartinversion product owner
-- **Updated:** 2026-08-01 (Gate G3: D-14 added)
-- **Purpose:** Record the status, owner, rationale, evidence and blocking effect of decisions D-01 through D-14.
+- **Updated:** 2026-08-05 (Gate G4: D-15/D-16 added)
+- **Purpose:** Record the status, owner, rationale, evidence and blocking effect of decisions D-01 through D-16.
 
 ## 1. Decision states
 
@@ -36,6 +36,8 @@
 | D-12 | `CLM-` claim-code prefix ratification | Decided | Product owner | None for Sprint 2/Gate G2 |
 | D-13 | Phase 3/Phase 4 scope boundary within "contenido" (backlog/definition vs. production/QA) | Decided | Product owner | None for Sprint 3 |
 | D-14 | `HYP-` hypothesis-code and `CNT-` content-item-code prefix ratification | Decided | Product owner | None for Sprint 3/Gate G3 |
+| D-15 | S4-008 "Related" access-control qualifier reading (direct-participation) | Decided | Product owner | None for Sprint 4/Gate G4 |
+| D-16 | S4-009 `qa_defects` resolution reading (active `approver` only) | Decided | Product owner | None for Sprint 4/Gate G4 |
 
 ## 3. D-01 — Hosting account and plan
 
@@ -423,7 +425,66 @@ Ratified by the product owner through the Gate G3 decision recorded in `docs/g3-
 - Existing `HYP-` and `CNT-` PostgreSQL generators are formally ratified.
 - No migration or application-code change is required by this decision.
 - Future code-prefix additions still require explicit approval under the established change-control process.
-## 17. Gate G0 interpretation required
+
+## 17. D-15 — S4-008 "Related" access-control qualifier reading
+
+### Decision
+
+The access-control matrix's undefined "Related" qualifier, as applied by S4-008 to `assets`/`asset_links` (for `creative_owner`) and to `qa_reviews`/`approvals` (for `creative_owner`, `director_ai_operator`, `editor`), is read as direct participation — `created_by` or a traced-authorship join — not any broader relational proximity (such as campaign membership, team assignment or generic project association).
+
+### Rationale
+
+`docs/access-control-matrix.md` leaves "Related" undefined for the F4 domain. Rather than leave the qualifier unimplemented or interpolate a broader reading that would widen access beyond what the matrix explicitly grants, S4-008 adopted the narrowest defensible reading — direct authorship or a traced-authorship join — consistent with the fail-closed posture Gate G3 §8 Condition 4 already required for unsupported qualifiers. This was confirmed with the product owner before the S4-008 migration was drafted, the same way D-09 and D-12 record interpretive calls made and confirmed during implementation rather than left as silent inference.
+
+### Scope
+
+This decision governs the "Related" qualifier specifically for `assets`, `asset_links`, `qa_reviews` and `approvals` under S4-008. It does not resolve "Related" (or the other named unsupported qualifiers — `financial_models`, `investment_theses`, the `campaign_manager` evidence-family qualifier, or the `opportunities`/`campaigns`/`content` "Related" qualifiers from the F2/F3 domain) anywhere outside this F4 scope; Gate G3 §8 Condition 4 remains open and carried forward unchanged for those.
+
+### Evidence
+
+- `docs/access-control-matrix.md` §11 (F4 domain matrix, "Related" qualifier)
+- S4-008 migration and RLS policies (PR #59, commit `cd4d268`)
+- `docs/g4-gate-review.md` §6 ("Per-role RLS (F4 domain)") and §7.3
+
+### Approval
+
+Confirmed by the product owner during S4-008 implementation (PR #59, commit `cd4d268`); formally ratified through the Gate G4 review recorded in `docs/g4-gate-review.md` §7.3/§12.
+
+### Affected implementation
+
+- S4-008's existing RLS policies already implement this reading; no migration or code change required by this decision.
+- S4-010's cross-surface authorization suite independently exercised this reading against a real authenticated session without finding a defect in the qualifier reading itself (the three defects S4-010 found and fixed were unrelated implementation bugs, not a misreading of "Related").
+
+## 18. D-16 — S4-009 `qa_defects` resolution reading
+
+### Decision
+
+Only an active `approver` may complete (resolve) a `qa_defects` record, per the resolution trigger's literal text. No other role — including `creative_owner`, `director_ai_operator` or `editor` — may resolve a defect, regardless of authorship or QA-review participation.
+
+### Rationale
+
+The `qa_defects` resolution trigger's text names `approver` as the resolving role without qualification. Rather than infer a broader resolution path (for example, allowing the defect's author or an assigned reviewer to self-resolve), S4-009 applied the trigger's literal text. This was confirmed with the product owner on 2026-08-04, and was not left as an assumption: S4-010's cross-surface authorization suite ("rebanada 6") independently proved the reading against a real authenticated Postgres session rather than relying on the S4-009 implementation's own test suite alone.
+
+### Scope
+
+This decision governs the `qa_defects` resolution transition specifically. It does not alter defect creation, QA-review authorization, or any other transition in the QA framework established by S4-005/S4-006.
+
+### Evidence
+
+- S4-009 migration and resolution trigger (PR #60, commit `058f10b`)
+- S4-010 cross-surface authorization suite, rebanada 6 (PR #61, commit `899563a`)
+- `docs/g4-gate-review.md` §7.3/§12
+
+### Approval
+
+Confirmed by the product owner on 2026-08-04 during S4-009 implementation (PR #60, commit `058f10b`); formally ratified through the Gate G4 review recorded in `docs/g4-gate-review.md` §7.3/§12.
+
+### Affected implementation
+
+- S4-009's existing resolution trigger already implements this reading; no migration or code change required by this decision.
+- S4-010's rebanada 6 pgTAP assertions are the real evidence proving this reading, not merely restating it.
+
+## 19. Gate G0 interpretation required
 
 Gate G0 must not silently treat D-06 or D-07 as complete.
 
@@ -441,7 +502,7 @@ Under every outcome:
 - no draft consent wording may be presented as legally approved;
 - no retention period may be inferred.
 
-## 18. Change control
+## 20. Change control
 
 A decision change must record:
 
