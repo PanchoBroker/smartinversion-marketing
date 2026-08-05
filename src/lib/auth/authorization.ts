@@ -73,6 +73,7 @@ export const AUTHORIZATION_ACTIONS = [
   "qa_review_item_result.write",
   "qa_defect.read",
   "qa_defect.write",
+  "qa_defect.resolve",
   "publication.read",
   "publication.write",
   "publication.approve",
@@ -488,6 +489,28 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
     "publisher",
   ],
   "qa_defect.write": ["approver"],
+
+  // qa_defects resolution (open -> resolved, the only transition
+  // s4_005_validate_defect's BEFORE UPDATE branch allows, S4-005 migration
+  // read in full): RLS admits four roles at the row level -- approver
+  // unconditionally (qa_defects_approver_update) and creative_owner/
+  // director_ai_operator/editor only when assigned_to_profile_id = self
+  // (qa_defects_*_assigned_update) -- so this action, kept separate from
+  // qa_defect.write's approver-only insert, admits all four at this coarse
+  // layer (same admit-then-let-RLS-narrow convention as qa_defect.read).
+  // Decided with the user (2026-08-04): the trigger itself is stricter than
+  // RLS and is the actual, final gate -- it requires resolved_by/
+  // resolved_role_id to be an active approver pair with no exception for
+  // the row's own assignee, so in practice only approver ever completes a
+  // resolution; the other three roles reach the database via their RLS
+  // "assigned" policy and are rejected there (42501), a deliberate choice,
+  // not an oversight left for a future migration change.
+  "qa_defect.resolve": [
+    "creative_owner",
+    "director_ai_operator",
+    "editor",
+    "approver",
+  ],
 
   "publication.read": TEAM_ROLES,
   "publication.write": ["publisher"],
