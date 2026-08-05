@@ -61,6 +61,8 @@ export const AUTHORIZATION_ACTIONS = [
   "scene_generation_budget_decision.write",
   "asset.read",
   "asset.write",
+  "asset_link.read",
+  "asset_link.write",
   "publication.read",
   "publication.write",
   "publication.approve",
@@ -352,6 +354,22 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
     "publisher",
   ],
   "asset.write": ["creative_owner", "director_ai_operator", "editor"],
+
+  // asset_links (S4-004): its own action, not a reuse of asset.*, but the
+  // exact same 6-role read shape and 3-role write shape as `assets` --
+  // S4-008 mirrors the asset policies one-for-one on this table (creative_
+  // owner "Related" via created_by, director_ai_operator scoped to a
+  // linked generation-type asset via an EXISTS check, editor unqualified;
+  // approver again holds no INSERT policy here either).
+  "asset_link.read": [
+    "creative_owner",
+    "director_ai_operator",
+    "editor",
+    "approver",
+    "campaign_manager",
+    "publisher",
+  ],
+  "asset_link.write": ["creative_owner", "director_ai_operator", "editor"],
 
   "publication.read": TEAM_ROLES,
   "publication.write": ["publisher"],
