@@ -65,6 +65,8 @@ export const AUTHORIZATION_ACTIONS = [
   "asset_link.write",
   "qa_checklist.read",
   "qa_checklist.write",
+  "qa_checklist_item.read",
+  "qa_checklist_item.write",
   "publication.read",
   "publication.write",
   "publication.approve",
@@ -392,6 +394,23 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
     "campaign_manager",
   ],
   "qa_checklist.write": ["approver"],
+
+  // qa_checklist_items (S4-005): its own action, not a reuse of
+  // qa_checklist.*, following the same convention already used for every
+  // other F4 sub-table (scene_prompt_version, scene_acceptance_criterion,
+  // generation_attempt_evaluation, asset_link) -- kept separate even
+  // though S4-008 gives this table the EXACT same 5-role read / approver-
+  // only write shape as its parent (qa_checklist_items_approver_insert is
+  // the only insert policy; creative_owner/director_ai_operator/editor/
+  // campaign_manager hold unconditional select only, no publisher policy).
+  "qa_checklist_item.read": [
+    "creative_owner",
+    "director_ai_operator",
+    "editor",
+    "approver",
+    "campaign_manager",
+  ],
+  "qa_checklist_item.write": ["approver"],
 
   "publication.read": TEAM_ROLES,
   "publication.write": ["publisher"],
