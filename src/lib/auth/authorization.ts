@@ -71,6 +71,8 @@ export const AUTHORIZATION_ACTIONS = [
   "qa_review.write",
   "qa_review_item_result.read",
   "qa_review_item_result.write",
+  "qa_defect.read",
+  "qa_defect.write",
   "publication.read",
   "publication.write",
   "publication.approve",
@@ -462,6 +464,30 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
     "publisher",
   ],
   "qa_review_item_result.write": ["approver"],
+
+  // qa_defects (S4-005): its own action, not a reuse of qa_review.*, same
+  // convention as every other F4 sub-table. S4-008's read shape here is
+  // physical, not "related": creative_owner/director_ai_operator/editor get
+  // a plain assigned_to_profile_id = self select/update pair (no
+  // s4_008_is_content_version_*_authored helper needed -- the column already
+  // names the reader), approver/campaign_manager get unconditional select,
+  // and publisher's own select is conditional on the defect being open AND
+  // critical/major (qa_defects_publisher_blocking_select) -- six roles admit
+  // at this coarse layer, same admit-then-let-RLS-narrow convention as
+  // qa_review.read. Insert stays approver-only (qa_defects_approver_insert
+  // is the table's only INSERT policy; the three assigned roles never get
+  // one) -- the resolution transition (qa_defects_*_assigned_update /
+  // qa_defects_approver_update) is left to a future command endpoint, not
+  // gated by this action.
+  "qa_defect.read": [
+    "creative_owner",
+    "director_ai_operator",
+    "editor",
+    "approver",
+    "campaign_manager",
+    "publisher",
+  ],
+  "qa_defect.write": ["approver"],
 
   "publication.read": TEAM_ROLES,
   "publication.write": ["publisher"],
