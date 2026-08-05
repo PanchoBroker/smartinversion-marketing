@@ -508,6 +508,11 @@ SELECT 'Tabla learning_records y vista v_learning_summary creadas exitosamente' 
 .env.*.local
 ````
 
+## File: eslint.config.mjs
+````javascript
+
+````
+
 ## File: next.config.ts
 ````typescript
 import type { NextConfig } from "next";
@@ -42851,11 +42856,6 @@ next-env.d.ts
 gitleaks-report.json
 ````
 
-## File: eslint.config.mjs
-````javascript
-
-````
-
 ## File: vitest.config.ts
 ````typescript
 import { fileURLToPath, URL } from "node:url";
@@ -42916,6 +42916,93 @@ import { defineConfig } from "vitest/config";
     }
   }
 }
+````
+
+## File: .github/workflows/ci.yml
+````yaml
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Quality and Cloudflare build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: TypeScript
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
+      - name: Build Cloudflare Worker
+        run: npm run build:worker
+
+  database:
+    name: Migration and schema/RLS checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Start local Supabase stack (applies every migration and the synthetic seed to a clean database)
+        run: supabase start
+
+      - name: Run schema and RLS pgTAP suite
+        run: supabase test db
+
+  security:
+    name: Secret scanning
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        run: |
+          docker run --rm -v "$GITHUB_WORKSPACE:/repo" \
+            zricethezav/gitleaks:latest detect \
+            --source=/repo --config=/repo/.gitleaks.toml --redact -v
 ````
 
 ## File: docs/access-control-matrix.md
@@ -57244,93 +57331,6 @@ function mockSession({
 })
 ````
 
-## File: .github/workflows/ci.yml
-````yaml
-name: CI
-
-on:
-  push:
-    branches:
-      - main
-  pull_request:
-    branches:
-      - main
-
-permissions:
-  contents: read
-
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-jobs:
-  quality:
-    name: Quality and Cloudflare build
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: "24"
-          package-manager-cache: false
-
-      - name: Install locked dependencies
-        run: npm ci
-
-      - name: Lint
-        run: npm run lint
-
-      - name: TypeScript
-        run: npm run typecheck
-
-      - name: Tests
-        run: npm test
-      - name: Build Cloudflare Worker
-        run: npm run build:worker
-
-  database:
-    name: Migration and schema/RLS checks
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-
-      - name: Set up Supabase CLI
-        uses: supabase/setup-cli@v1
-        with:
-          version: latest
-
-      - name: Start local Supabase stack (applies every migration and the synthetic seed to a clean database)
-        run: supabase start
-
-      - name: Run schema and RLS pgTAP suite
-        run: supabase test db
-
-  security:
-    name: Secret scanning
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - name: Run gitleaks
-        run: |
-          docker run --rm -v "$GITHUB_WORKSPACE:/repo" \
-            zricethezav/gitleaks:latest detect \
-            --source=/repo --config=/repo/.gitleaks.toml --redact -v
-````
-
 ## File: docs/authorization-test-map.md
 ````markdown
 # Cross-Surface Authorization Test Map
@@ -62341,6 +62341,53 @@ regexes = [
 ]
 ````
 
+## File: package.json
+````json
+{
+  "name": "smartinversion-marketing",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
+    "deploy:staging": "node scripts/deploy-staging.mjs",
+    "verify:staging": "node scripts/verify-staging.mjs",
+    "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",
+    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "cf-typegen": "wrangler types --env-interface CloudflareEnv ./cloudflare-env.d.ts",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run lint && npm run typecheck && npm test && npm run build",
+    "build:worker": "opennextjs-cloudflare build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@opennextjs/cloudflare": "1.20.1",
+    "@supabase/ssr": "0.12.1",
+    "@supabase/supabase-js": "2.110.3",
+    "next": "15.5.18",
+    "react": "^19.1.7",
+    "react-dom": "^19.1.7"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20.19.43",
+    "@types/react": "^19.1.7",
+    "@types/react-dom": "^19.1.7",
+    "eslint": "^9",
+    "eslint-config-next": "15.5.18",
+    "supabase": "2.109.1",
+    "tailwindcss": "^4",
+    "typescript": "^5.7.4",
+    "vitest": "4.1.10",
+    "wrangler": "4.110.0"
+  }
+}
+````
+
 ## File: supabase/tests/database/cross_surface_authorization_test_suite_s4_010.test.sql
 ````sql
 -- S4-010 (slice 1 of N): cross-surface authorization test suite for the F4
@@ -64364,53 +64411,6 @@ reset role;
 select * from finish();
 
 rollback;
-````
-
-## File: package.json
-````json
-{
-  "name": "smartinversion-marketing",
-  "version": "0.1.0",
-  "private": true,
-  "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint .",
-    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
-    "deploy:staging": "node scripts/deploy-staging.mjs",
-    "verify:staging": "node scripts/verify-staging.mjs",
-    "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",
-    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
-    "cf-typegen": "wrangler types --env-interface CloudflareEnv ./cloudflare-env.d.ts",
-    "typecheck": "tsc --noEmit",
-    "check": "npm run lint && npm run typecheck && npm test && npm run build",
-    "build:worker": "opennextjs-cloudflare build",
-    "test": "vitest run"
-  },
-  "dependencies": {
-    "@opennextjs/cloudflare": "1.20.1",
-    "@supabase/ssr": "0.12.1",
-    "@supabase/supabase-js": "2.110.3",
-    "next": "15.5.18",
-    "react": "^19.1.7",
-    "react-dom": "^19.1.7"
-  },
-  "devDependencies": {
-    "@eslint/eslintrc": "^3",
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^20.19.43",
-    "@types/react": "^19.1.7",
-    "@types/react-dom": "^19.1.7",
-    "eslint": "^9",
-    "eslint-config-next": "15.5.18",
-    "supabase": "2.109.1",
-    "tailwindcss": "^4",
-    "typescript": "^5.7.4",
-    "vitest": "4.1.10",
-    "wrangler": "4.110.0"
-  }
-}
 ````
 
 ## File: docs/decision-register.md
