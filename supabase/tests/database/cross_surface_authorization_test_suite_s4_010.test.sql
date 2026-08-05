@@ -67,7 +67,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(134);
+select plan(163);
 
 -- -------------------------------------------------------------------------
 -- Fixtures: one profile per F4-relevant role (creative_owner, director_ai_
@@ -2675,6 +2675,559 @@ select results_eq(
     $$,
     $$values ('eb000000-0000-4000-8000-000000000001'::uuid)$$,
     'An approver can complete the review -- one recorded passed item, zero blocking defects'
+);
+
+-- Slice 5 leaves the role as 'authenticated' impersonating approver (the
+-- next slice's first proof re-asserts its own role before reading).
+reset role;
+
+-- -------------------------------------------------------------------------
+-- Slice 6 of N: qa_defects (Section 11). Mutable like assets/qa_reviews
+-- (grant select, insert, update to authenticated -- S4-008 Section 4), but
+-- with a materially different shape: three roles beyond approver
+-- (creative_owner, director_ai_operator, editor) hold their own UPDATE
+-- policy here, gated on the physical assigned_to_profile_id column rather
+-- than a "related-authorship" helper function -- no SECURITY DEFINER/
+-- INVOKER question arises for these three, since the policy only compares
+-- a column already on the row being updated.
+--
+-- Audited against 20260814000000_...s4_008.sql Section 4 and the S4-005
+-- migration's own s4_005_validate_defect() trigger (both read in full this
+-- session):
+--   * INSERT: RLS restricts insert to approver alone
+--     (qa_defects_approver_insert); the trigger re-checks independently
+--     (opened_by/opened_role_id must resolve to an active, non-machine
+--     approver via s4_005_has_active_human_role + s4_005_role_is_approver),
+--     defense in depth rather than a second, differently-shaped gate.
+--   * SELECT: creative_owner/director_ai_operator/editor are "Assigned"
+--     (assigned_to_profile_id = current_profile_id()) -- a plain column
+--     comparison, not a related-authorship helper. approver and campaign_
+--     manager are unconditional. publisher is the one conditional reader:
+--     qa_defects_publisher_blocking_select admits only status = 'open' AND
+--     severity in ('critical','major') -- the "blocking subset" its own
+--     policy name promises, proven below with one minor-severity defect
+--     that stays invisible to publisher alongside two that are visible.
+--   * UPDATE: this is the slice's real finding. qa_defects_*_assigned_update
+--     lets creative_owner/director_ai_operator/editor update a defect
+--     assigned to them -- RLS's own USING/WITH CHECK never inspects
+--     resolved_by/resolved_role_id, only assigned_to_profile_id. The only
+--     gate on who a resolution is attributed to is the trigger's own
+--     s4_005_has_active_human_role(new.resolved_by, new.resolved_role_id)
+--     + s4_005_role_is_approver(new.resolved_role_id) check -- which
+--     inspects the VALUES being written, never the calling session's own
+--     identity. Read literally (the interpretation the user already
+--     confirmed for this exact trigger during S4-009's route work: "solo
+--     approver resuelve, lectura literal del trigger"), an assigned
+--     non-approver role can complete a resolution as long as it correctly
+--     attributes resolved_by/resolved_role_id to a genuine active approver
+--     -- it is blocked only from attributing the resolution to itself.
+--     Both halves are proven below on the same fixture defect (creative_
+--     owner's own self-attributed attempt throws 42501; a second attempt
+--     immediately after, attributing the same resolution to the real
+--     approver profile, succeeds) -- real evidence of the already-decided
+--     reading, not a fresh assumption.
+--
+-- Fixture: three open defects on the slice-5 qa_review (still a valid,
+-- non-archived parent -- the trigger's only INSERT-time requirement on the
+-- parent review), one assigned to each of creative_owner/director_ai_
+-- operator/editor, with severities critical/minor/major respectively so
+-- the same three rows also carry the publisher blocking-subset proof.
+-- -------------------------------------------------------------------------
+
+select lives_ok(
+    $qa_defects_fixture$
+        insert into public.qa_defects (
+            id, qa_review_id, severity, defect_type, title, description,
+            assigned_to_profile_id, opened_by, opened_role_id,
+            correlation_id, environment
+        )
+        values
+            (
+                'ec000000-0000-4000-8000-000000000001'::uuid,
+                'eb000000-0000-4000-8000-000000000001'::uuid,
+                'critical', 'visual_error',
+                'S4-010 fixture defect A (critical, assigned creative_owner)',
+                'S4-010 fixture defect A description',
+                'e4000000-0000-4000-8000-000000000002'::uuid,
+                'e4000000-0000-4000-8000-000000000005'::uuid,
+                (select id from public.roles where code = 'approver'),
+                gen_random_uuid(), 'test'
+            ),
+            (
+                'ec000000-0000-4000-8000-000000000002'::uuid,
+                'eb000000-0000-4000-8000-000000000001'::uuid,
+                'minor', 'continuity_break',
+                'S4-010 fixture defect B (minor, assigned director_ai_operator)',
+                'S4-010 fixture defect B description',
+                'e4000000-0000-4000-8000-000000000003'::uuid,
+                'e4000000-0000-4000-8000-000000000005'::uuid,
+                (select id from public.roles where code = 'approver'),
+                gen_random_uuid(), 'test'
+            ),
+            (
+                'ec000000-0000-4000-8000-000000000003'::uuid,
+                'eb000000-0000-4000-8000-000000000001'::uuid,
+                'major', 'asset_rights_gap',
+                'S4-010 fixture defect C (major, assigned editor)',
+                'S4-010 fixture defect C description',
+                'e4000000-0000-4000-8000-000000000004'::uuid,
+                'e4000000-0000-4000-8000-000000000005'::uuid,
+                (select id from public.roles where code = 'approver'),
+                gen_random_uuid(), 'test'
+            );
+    $qa_defects_fixture$,
+    'Three open defects (critical/assigned creative-owner, minor/assigned director-ai-operator, major/assigned editor) are opened by the approver on the slice-5 qa_review'
+);
+
+-- -------------------------------------------------------------------------
+-- Read-only proofs, in the fixture state above: defects A (critical,
+-- creative_owner), B (minor, director_ai_operator), C (major, editor), all
+-- open.
+-- -------------------------------------------------------------------------
+
+set local role anon;
+
+select throws_ok(
+    $$select count(*) from public.qa_defects$$,
+    '42501', null,
+    'Anonymous cannot select qa defects'
+);
+
+set local role authenticated;
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000009';
+
+select results_eq(
+    $$select count(*) from public.qa_defects$$,
+    $$values (0::bigint)$$,
+    'An authenticated profile with no active role sees zero qa defects'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000008';
+
+select results_eq(
+    $$select count(*) from public.qa_defects$$,
+    $$values (0::bigint)$$,
+    'An administrator sees zero qa defects -- no policy exists for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000002';
+
+select results_eq(
+    $$select id from public.qa_defects order by id$$,
+    $$values ('ec000000-0000-4000-8000-000000000001'::uuid)$$,
+    'A creative owner sees only the defect assigned to them -- defect A'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000003';
+
+select results_eq(
+    $$select id from public.qa_defects order by id$$,
+    $$values ('ec000000-0000-4000-8000-000000000002'::uuid)$$,
+    'A director AI operator sees only the defect assigned to them -- defect B'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000004';
+
+select results_eq(
+    $$select id from public.qa_defects order by id$$,
+    $$values ('ec000000-0000-4000-8000-000000000003'::uuid)$$,
+    'An editor sees only the defect assigned to them -- defect C'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000005';
+
+select results_eq(
+    $$select count(*) from public.qa_defects$$,
+    $$values (3::bigint)$$,
+    'An approver sees every qa defect -- unconditional select'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000006';
+
+select results_eq(
+    $$select count(*) from public.qa_defects$$,
+    $$values (3::bigint)$$,
+    'A campaign manager sees every qa defect -- unconditional select'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000007';
+
+select results_eq(
+    $$select id from public.qa_defects order by id$$,
+    $$values
+        ('ec000000-0000-4000-8000-000000000001'::uuid),
+        ('ec000000-0000-4000-8000-000000000003'::uuid)
+    $$,
+    'A publisher sees only the open critical/major blocking subset -- defects A and C, not the minor defect B'
+);
+
+-- -------------------------------------------------------------------------
+-- Insert-authorization proofs. s4_005_validate_defect() runs regardless of
+-- session role -- every payload below is a fully valid, trigger-passing
+-- defect on the slice-5 qa_review, attributed to the real approver profile,
+-- so every denied attempt fails on RLS alone, not on an unrelated trigger
+-- exception.
+-- -------------------------------------------------------------------------
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000009';
+
+select throws_ok(
+    $test$
+        insert into public.qa_defects (
+            qa_review_id, severity, defect_type, title, description,
+            assigned_to_profile_id, opened_by, opened_role_id,
+            correlation_id, environment
+        )
+        values (
+            'eb000000-0000-4000-8000-000000000001'::uuid,
+            'minor', 'no_role_attempt',
+            'S4-010 denied insert (no role)', 'S4-010 denied insert description',
+            'e4000000-0000-4000-8000-000000000004'::uuid,
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        )
+    $test$,
+    '42501', null,
+    'An authenticated profile with no active role cannot insert a qa defect'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000008';
+
+select throws_ok(
+    $test$
+        insert into public.qa_defects (
+            qa_review_id, severity, defect_type, title, description,
+            assigned_to_profile_id, opened_by, opened_role_id,
+            correlation_id, environment
+        )
+        values (
+            'eb000000-0000-4000-8000-000000000001'::uuid,
+            'minor', 'administrator_attempt',
+            'S4-010 denied insert (administrator)', 'S4-010 denied insert description',
+            'e4000000-0000-4000-8000-000000000004'::uuid,
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        )
+    $test$,
+    '42501', null,
+    'An administrator cannot insert a qa defect -- no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000002';
+
+select throws_ok(
+    $test$
+        insert into public.qa_defects (
+            qa_review_id, severity, defect_type, title, description,
+            assigned_to_profile_id, opened_by, opened_role_id,
+            correlation_id, environment
+        )
+        values (
+            'eb000000-0000-4000-8000-000000000001'::uuid,
+            'minor', 'creative_owner_attempt',
+            'S4-010 denied insert (creative owner)', 'S4-010 denied insert description',
+            'e4000000-0000-4000-8000-000000000004'::uuid,
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        )
+    $test$,
+    '42501', null,
+    'A creative owner cannot insert a qa defect -- assigned read/update only, no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000003';
+
+select throws_ok(
+    $test$
+        insert into public.qa_defects (
+            qa_review_id, severity, defect_type, title, description,
+            assigned_to_profile_id, opened_by, opened_role_id,
+            correlation_id, environment
+        )
+        values (
+            'eb000000-0000-4000-8000-000000000001'::uuid,
+            'minor', 'director_ai_operator_attempt',
+            'S4-010 denied insert (director ai operator)', 'S4-010 denied insert description',
+            'e4000000-0000-4000-8000-000000000004'::uuid,
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        )
+    $test$,
+    '42501', null,
+    'A director AI operator cannot insert a qa defect -- assigned read/update only, no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000004';
+
+select throws_ok(
+    $test$
+        insert into public.qa_defects (
+            qa_review_id, severity, defect_type, title, description,
+            assigned_to_profile_id, opened_by, opened_role_id,
+            correlation_id, environment
+        )
+        values (
+            'eb000000-0000-4000-8000-000000000001'::uuid,
+            'minor', 'editor_attempt',
+            'S4-010 denied insert (editor)', 'S4-010 denied insert description',
+            'e4000000-0000-4000-8000-000000000004'::uuid,
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        )
+    $test$,
+    '42501', null,
+    'An editor cannot insert a qa defect -- assigned read/update only, no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000006';
+
+select throws_ok(
+    $test$
+        insert into public.qa_defects (
+            qa_review_id, severity, defect_type, title, description,
+            assigned_to_profile_id, opened_by, opened_role_id,
+            correlation_id, environment
+        )
+        values (
+            'eb000000-0000-4000-8000-000000000001'::uuid,
+            'minor', 'campaign_manager_attempt',
+            'S4-010 denied insert (campaign manager)', 'S4-010 denied insert description',
+            'e4000000-0000-4000-8000-000000000004'::uuid,
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        )
+    $test$,
+    '42501', null,
+    'A campaign manager cannot insert a qa defect -- select-only, no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000007';
+
+select throws_ok(
+    $test$
+        insert into public.qa_defects (
+            qa_review_id, severity, defect_type, title, description,
+            assigned_to_profile_id, opened_by, opened_role_id,
+            correlation_id, environment
+        )
+        values (
+            'eb000000-0000-4000-8000-000000000001'::uuid,
+            'minor', 'publisher_attempt',
+            'S4-010 denied insert (publisher)', 'S4-010 denied insert description',
+            'e4000000-0000-4000-8000-000000000004'::uuid,
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        )
+    $test$,
+    '42501', null,
+    'A publisher cannot insert a qa defect -- blocking-subset select only, no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000005';
+
+select lives_ok(
+    $approver_insert_defect$
+        insert into public.qa_defects (
+            id, qa_review_id, severity, defect_type, title, description,
+            assigned_to_profile_id, opened_by, opened_role_id,
+            correlation_id, environment
+        )
+        values (
+            'ec000000-0000-4000-8000-000000000004'::uuid,
+            'eb000000-0000-4000-8000-000000000001'::uuid,
+            'improvement', 'audio_sync_issue',
+            'S4-010 fixture defect D (improvement, assigned editor)',
+            'S4-010 fixture defect D description',
+            'e4000000-0000-4000-8000-000000000004'::uuid,
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        )
+    $approver_insert_defect$,
+    'An approver can insert a new qa defect'
+);
+
+-- -------------------------------------------------------------------------
+-- Update-authorization proofs. qa_defects grants UPDATE to authenticated,
+-- so denied roles with no matching policy get is_empty() (RLS excludes the
+-- row before s4_005_validate_defect() ever fires), same mechanism already
+-- proven for assets/qa_reviews. Only anon (no table grant) still throws.
+-- Every RLS-admitted attempt below targets defect A (still 'open',
+-- assigned to creative_owner) unless noted otherwise.
+-- -------------------------------------------------------------------------
+
+set local role anon;
+
+select throws_ok(
+    $test$
+        update public.qa_defects
+        set resolution_summary = 'anon_attempt'
+        where id = 'ec000000-0000-4000-8000-000000000001'::uuid
+        returning id
+    $test$,
+    '42501', null,
+    'Anonymous cannot update a qa defect -- no table privilege at all'
+);
+
+set local role authenticated;
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000009';
+
+select is_empty(
+    $$
+        update public.qa_defects
+        set status = 'resolved',
+            resolved_by = 'e4000000-0000-4000-8000-000000000005'::uuid,
+            resolved_role_id = (select id from public.roles where code = 'approver'),
+            resolution_summary = 'no_role_attempt'
+        where id = 'ec000000-0000-4000-8000-000000000001'::uuid
+        returning id
+    $$,
+    'An authenticated profile with no active role updates zero qa defects -- no policy matches'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000008';
+
+select is_empty(
+    $$
+        update public.qa_defects
+        set status = 'resolved',
+            resolved_by = 'e4000000-0000-4000-8000-000000000005'::uuid,
+            resolved_role_id = (select id from public.roles where code = 'approver'),
+            resolution_summary = 'administrator_attempt'
+        where id = 'ec000000-0000-4000-8000-000000000001'::uuid
+        returning id
+    $$,
+    'An administrator updates zero qa defects -- no policy exists for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000006';
+
+select is_empty(
+    $$
+        update public.qa_defects
+        set status = 'resolved',
+            resolved_by = 'e4000000-0000-4000-8000-000000000005'::uuid,
+            resolved_role_id = (select id from public.roles where code = 'approver'),
+            resolution_summary = 'campaign_manager_attempt'
+        where id = 'ec000000-0000-4000-8000-000000000001'::uuid
+        returning id
+    $$,
+    'A campaign manager updates zero qa defects -- select-only, no update policy'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000007';
+
+select is_empty(
+    $$
+        update public.qa_defects
+        set status = 'resolved',
+            resolved_by = 'e4000000-0000-4000-8000-000000000005'::uuid,
+            resolved_role_id = (select id from public.roles where code = 'approver'),
+            resolution_summary = 'publisher_attempt'
+        where id = 'ec000000-0000-4000-8000-000000000001'::uuid
+        returning id
+    $$,
+    'A publisher updates zero qa defects -- blocking-subset select only, no update policy'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000002';
+
+select throws_ok(
+    $test$
+        update public.qa_defects
+        set status = 'resolved',
+            resolved_by = 'e4000000-0000-4000-8000-000000000002'::uuid,
+            resolved_role_id = (select id from public.roles where code = 'creative_owner'),
+            resolution_summary = 'creative_owner_self_attempt'
+        where id = 'ec000000-0000-4000-8000-000000000001'::uuid
+        returning id
+    $test$,
+    '42501', null,
+    'A creative owner assigned to defect A cannot self-attribute the resolution -- the trigger requires resolved_by/resolved_role_id to resolve to an active approver, not merely an active session role'
+);
+
+select is_empty(
+    $$
+        update public.qa_defects
+        set status = 'resolved',
+            resolved_by = 'e4000000-0000-4000-8000-000000000005'::uuid,
+            resolved_role_id = (select id from public.roles where code = 'approver'),
+            resolution_summary = 'creative_owner_wrong_assignment_attempt'
+        where id = 'ec000000-0000-4000-8000-000000000002'::uuid
+        returning id
+    $$,
+    'A creative owner updates zero rows against defect B -- assigned to the director AI operator, not to them'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000003';
+
+select throws_ok(
+    $test$
+        update public.qa_defects
+        set status = 'resolved',
+            resolved_by = 'e4000000-0000-4000-8000-000000000003'::uuid,
+            resolved_role_id = (select id from public.roles where code = 'director_ai_operator'),
+            resolution_summary = 'director_ai_operator_self_attempt'
+        where id = 'ec000000-0000-4000-8000-000000000002'::uuid
+        returning id
+    $test$,
+    '42501', null,
+    'A director AI operator assigned to defect B cannot self-attribute the resolution -- same active-approver requirement'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000004';
+
+select throws_ok(
+    $test$
+        update public.qa_defects
+        set status = 'resolved',
+            resolved_by = 'e4000000-0000-4000-8000-000000000004'::uuid,
+            resolved_role_id = (select id from public.roles where code = 'editor'),
+            resolution_summary = 'editor_self_attempt'
+        where id = 'ec000000-0000-4000-8000-000000000003'::uuid
+        returning id
+    $test$,
+    '42501', null,
+    'An editor assigned to defect C cannot self-attribute the resolution -- same active-approver requirement'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000002';
+
+select results_eq(
+    $$
+        update public.qa_defects
+        set status = 'resolved',
+            resolved_by = 'e4000000-0000-4000-8000-000000000005'::uuid,
+            resolved_role_id = (select id from public.roles where code = 'approver'),
+            resolution_summary = 'Resolved by creative owner, attributed to the reviewing approver'
+        where id = 'ec000000-0000-4000-8000-000000000001'::uuid
+        returning id
+    $$,
+    $$values ('ec000000-0000-4000-8000-000000000001'::uuid)$$,
+    'A creative owner assigned to defect A CAN complete its resolution, as long as resolved_by/resolved_role_id genuinely identify an active approver -- the literal trigger reading already confirmed for this table (S4-009)'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000005';
+
+select results_eq(
+    $$
+        update public.qa_defects
+        set status = 'resolved',
+            resolved_by = 'e4000000-0000-4000-8000-000000000005'::uuid,
+            resolved_role_id = (select id from public.roles where code = 'approver'),
+            resolution_summary = 'Resolved directly by the approver'
+        where id = 'ec000000-0000-4000-8000-000000000003'::uuid
+        returning id
+    $$,
+    $$values ('ec000000-0000-4000-8000-000000000003'::uuid)$$,
+    'An approver can complete the resolution of any defect, including one assigned to a different role -- unconditional update policy'
 );
 
 reset role;
