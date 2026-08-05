@@ -67,7 +67,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(98);
+select plan(134);
 
 -- -------------------------------------------------------------------------
 -- Fixtures: one profile per F4-relevant role (creative_owner, director_ai_
@@ -2012,6 +2012,669 @@ select throws_ok(
     $test$,
     '42501', null,
     'A creative owner cannot update an asset link, even one they authored -- immutable, no UPDATE grant exists for any role'
+);
+
+-- Slice 4 leaves the role as 'authenticated' impersonating creative_owner
+-- (the last role switch above). Reset before slice 5 opens its own
+-- fixtures, same lesson learned in every slice boundary so far.
+reset role;
+
+-- -------------------------------------------------------------------------
+-- Slice 5 of N: qa_reviews (Section 11). By far the heaviest fixture chain
+-- yet -- unlike slices 1-4, qa_reviews' own BEFORE INSERT trigger
+-- (s4_005_validate_review_entry) reaches across every domain this suite
+-- has touched so far: it requires the target content_version to be
+-- 'qa_pending' (none of the existing fixture versions are -- they are
+-- 'draft' or 'approved'), to have non-blank script/caption, to be bound to
+-- a reviewable master asset (available, unblocked, unexpired, checksum
+-- matching its private_storage_objects row -- already true of the
+-- slice-3 master asset e9600000-...0001), to have at least one scene with
+-- at least one scene_acceptance_criteria row, and to resolve against an
+-- ACTIVE qa_checklist for its content_type with an item in the reviewed
+-- dimension. A fresh content_version (status set directly at insert --
+-- confirmed no allowlist/trigger guards this column, S3-003's own column
+-- comment) plus a fresh scene are created here rather than reusing any
+-- earlier fixture, specifically so this slice's own creative_owner/
+-- director_ai_operator/editor "related" proofs below have a clean,
+-- single-purpose authorship trail to check against.
+--
+-- Audited against 20260814000000_...s4_008.sql Section 4 (read in full
+-- this session): creative_owner/director_ai_operator/editor are each
+-- "related" via a dedicated SECURITY INVOKER helper introduced by this
+-- same migration (s4_008_is_content_version_scene_authored /
+-- _generation_authored / _asset_authored -- security invoker is correct,
+-- not security definer, because authenticated already holds SELECT on
+-- every table these helpers touch by the end of the migration, unlike
+-- S3-006's helpers which exist specifically to reach ungranted tables).
+-- approver is select+insert+update, unconditional. campaign_manager is
+-- select-only, unconditional. publisher's exists() targets content_
+-- versions.status = 'approved' directly (not via assets/asset_links this
+-- time) -- our new version is 'qa_pending', so publisher is expected to
+-- see zero rows, the one negative case in an otherwise-unconditional-or-
+-- related roster.
+--
+-- Mutation shape: qa_reviews grants select+insert+UPDATE to authenticated
+-- (S4-008 Section 4), so denied-role updates are the is_empty() shape
+-- (same mechanism as assets in slice 3), not throws_ok() -- except anon,
+-- who lacks the table grant entirely. Only approver holds an UPDATE
+-- policy (unconditional), but qa_reviews_validate_completion_trigger
+-- (before update OR DELETE, unconditional -- read in full this session)
+-- fires on every row it actually reaches: it forbids re-touching a
+-- non-'pending' review, requires a non-'pending' decision, requires every
+-- checklist item for the review's own dimension to already have a
+-- recorded qa_review_item_results row, and (for decision = 'approved')
+-- requires every required item to be 'passed' and zero open blocking
+-- (critical/major) qa_defects. Denied roles never trigger any of this --
+-- RLS's own USING clause excludes the row from the update's candidate set
+-- before the trigger ever fires, the same short-circuit already proven
+-- for assets' is_empty() proofs. Approver's own successful completion
+-- proof below is real evidence that the full chain (one checklist item,
+-- one recorded 'passed' result, zero defects) is enough to close a
+-- review, not an assumption.
+--
+-- Fixture: one qa_checklist for content_type 'reel' with all 8 mandatory
+-- dimensions covered (activate_qa_checklist refuses to activate otherwise
+-- -- confirmed by reading its own missing_dimensions check), reusing the
+-- exact item roster proven by qa_checklists_reviews_dimensions_defects_
+-- s4_005.test.sql's own canonical fixture (item_code/dimension/requirement_
+-- text pairs) rather than inventing a new one. One qa_review_item_results
+-- row records the 'strategic' item as 'passed' so the approver's later
+-- completion proof has a real, minimal, already-satisfied chain to close
+-- against.
+-- -------------------------------------------------------------------------
+
+select lives_ok(
+    $qa_pending_version_fixture$
+        insert into public.content_versions (
+            id, content_item_id, version_number, status, script, caption,
+            master_asset_id, checksum
+        )
+        values (
+            'e9800000-0000-4000-8000-000000000002'::uuid,
+            'e5000000-0000-4000-8000-000000000003'::uuid,
+            4, 'qa_pending',
+            'S4-010 fixture script (qa_pending, slice 5)',
+            'S4-010 fixture caption (qa_pending, slice 5)',
+            'e9600000-0000-4000-8000-000000000001'::uuid,
+            repeat('a', 64)
+        );
+    $qa_pending_version_fixture$,
+    'A new qa_pending content_version, bound to the slice-3 master asset, is created'
+);
+
+select lives_ok(
+    $qa_scene_fixture$
+        insert into public.scenes (
+            id, content_item_id, content_version_id, scene_number,
+            narrative_objective, target_duration_seconds,
+            subject_specification, action_specification,
+            environment_specification, camera_specification,
+            lighting_specification, continuity_specification,
+            created_by
+        )
+        values (
+            'e6000000-0000-4000-8000-000000000003'::uuid,
+            'e5000000-0000-4000-8000-000000000003'::uuid,
+            'e9800000-0000-4000-8000-000000000002'::uuid,
+            1,
+            'S4-010 fixture narrative objective (slice 5 qa_pending version)',
+            15.000,
+            'S4-010 fixture subject', 'S4-010 fixture action',
+            'S4-010 fixture environment', 'S4-010 fixture camera',
+            'S4-010 fixture lighting', 'S4-010 fixture continuity',
+            'e4000000-0000-4000-8000-000000000002'::uuid
+        );
+
+        insert into public.scene_acceptance_criteria (
+            scene_id, criterion_number, criterion_type, criterion_text,
+            created_by
+        )
+        values (
+            'e6000000-0000-4000-8000-000000000003'::uuid,
+            1, 'required',
+            'S4-010 fixture acceptance criterion (slice 5)',
+            'e4000000-0000-4000-8000-000000000002'::uuid
+        );
+    $qa_scene_fixture$,
+    'A new scene under the qa_pending version is created (creative-owner authored), with one acceptance criterion'
+);
+
+select lives_ok(
+    $qa_prompt_version_fixture$
+        insert into public.scene_prompt_versions (
+            id, scene_id, version_number, prompt_text, created_by
+        )
+        values (
+            'e7000000-0000-4000-8000-000000000002'::uuid,
+            'e6000000-0000-4000-8000-000000000003'::uuid,
+            1,
+            'S4-010 fixture generation prompt (slice 5)',
+            'e4000000-0000-4000-8000-000000000003'::uuid
+        );
+    $qa_prompt_version_fixture$,
+    'A prompt version is created under the slice-5 scene'
+);
+
+set local role service_role;
+
+select lives_ok(
+    $$
+        select public.resolve_scene_generation_budget(
+            'e6000000-0000-4000-8000-000000000003'::uuid,
+            'test',
+            'e4000000-0000-4000-8000-000000000003'::uuid
+        )
+    $$,
+    'The generation budget for the slice-5 scene resolves in the test environment'
+);
+
+reset role;
+
+select lives_ok(
+    $qa_generation_attempt_fixture$
+        insert into public.generation_attempts (
+            id, scene_id, prompt_version_id, attempt_number, attempt_phase,
+            prompt_text_snapshot, provider_code, model_identifier,
+            changed_variable, result_reference, duration_seconds, created_by
+        )
+        values (
+            'e8000000-0000-4000-8000-000000000003'::uuid,
+            'e6000000-0000-4000-8000-000000000003'::uuid,
+            'e7000000-0000-4000-8000-000000000002'::uuid,
+            1, 'exploration',
+            'S4-010 fixture generation prompt (slice 5)',
+            'synthetic', 'synthetic-model-v1',
+            'S4-010 fixture variable (slice 5)',
+            jsonb_build_object(
+                'kind', 'synthetic',
+                'synthetic_locator', 's4-010-fixture-005'
+            ),
+            5.000,
+            'e4000000-0000-4000-8000-000000000003'::uuid
+        );
+    $qa_generation_attempt_fixture$,
+    'A generation attempt under the slice-5 scene is created, authored by the director-ai-operator profile'
+);
+
+select lives_ok(
+    $qa_editor_asset_link_fixture$
+        insert into public.asset_links (
+            id, asset_id, related_object_type, related_object_id,
+            relation_type, created_by
+        )
+        values (
+            'e9700000-0000-4000-8000-000000000005'::uuid,
+            'e9600000-0000-4000-8000-000000000005'::uuid,
+            'content_item',
+            'e5000000-0000-4000-8000-000000000003'::uuid,
+            'qa_editor_reference',
+            'e4000000-0000-4000-8000-000000000004'::uuid
+        );
+    $qa_editor_asset_link_fixture$,
+    'The editor-authored source asset (slice 3) is linked to the fixture content item, so editor has a related qa_reviews proof'
+);
+
+select lives_ok(
+    $qa_checklist_fixture$
+        insert into public.qa_checklists (
+            id, content_type, version_number, name, description, created_by
+        )
+        values (
+            'ea000000-0000-4000-8000-000000000001'::uuid,
+            'reel', 1, 'S4-010 Slice 5 Reel QA Checklist',
+            'Fixture checklist covering all 8 mandatory dimensions',
+            'e4000000-0000-4000-8000-000000000001'::uuid
+        );
+
+        insert into public.qa_checklist_items (
+            qa_checklist_id, item_code, dimension, item_order,
+            requirement_text, is_required, created_by
+        )
+        values
+            ('ea000000-0000-4000-8000-000000000001'::uuid, 'strat_hook', 'strategic', 1, 'Hook aligns with brief', true, 'e4000000-0000-4000-8000-000000000001'::uuid),
+            ('ea000000-0000-4000-8000-000000000001'::uuid, 'fact_claim', 'factual', 1, 'Claims match sources', true, 'e4000000-0000-4000-8000-000000000001'::uuid),
+            ('ea000000-0000-4000-8000-000000000001'::uuid, 'fin_yield', 'financial', 1, 'Yield metrics accurate', true, 'e4000000-0000-4000-8000-000000000001'::uuid),
+            ('ea000000-0000-4000-8000-000000000001'::uuid, 'vis_frame', 'visual', 1, 'Framing is clean', true, 'e4000000-0000-4000-8000-000000000001'::uuid),
+            ('ea000000-0000-4000-8000-000000000001'::uuid, 'right_asset', 'rights', 1, 'Asset rights verified', true, 'e4000000-0000-4000-8000-000000000001'::uuid),
+            ('ea000000-0000-4000-8000-000000000001'::uuid, 'brand_tone', 'brand', 1, 'Brand tone compliant', true, 'e4000000-0000-4000-8000-000000000001'::uuid),
+            ('ea000000-0000-4000-8000-000000000001'::uuid, 'tech_audio', 'technical', 1, 'Audio sync correct', true, 'e4000000-0000-4000-8000-000000000001'::uuid),
+            ('ea000000-0000-4000-8000-000000000001'::uuid, 'conv_cta', 'conversion', 1, 'CTA link working', true, 'e4000000-0000-4000-8000-000000000001'::uuid);
+    $qa_checklist_fixture$,
+    'A draft QA checklist for content_type reel, with items in all 8 mandatory dimensions, is created'
+);
+
+select lives_ok(
+    $$
+        select public.activate_qa_checklist(
+            'ea000000-0000-4000-8000-000000000001'::uuid,
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(),
+            'S4-010 slice 5 checklist activation', 'test'
+        )
+    $$,
+    'The slice-5 checklist is activated by the approver profile'
+);
+
+select lives_ok(
+    $qa_review_fixture$
+        insert into public.qa_reviews (
+            id, content_version_id, qa_checklist_id, dimension,
+            reviewer_profile_id, reviewer_role_id, correlation_id, environment
+        )
+        values (
+            'eb000000-0000-4000-8000-000000000001'::uuid,
+            'e9800000-0000-4000-8000-000000000002'::uuid,
+            'ea000000-0000-4000-8000-000000000001'::uuid,
+            'strategic',
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(),
+            'test'
+        );
+    $qa_review_fixture$,
+    'A pending strategic-dimension qa_review is created for the slice-5 qa_pending version'
+);
+
+select lives_ok(
+    $qa_review_item_result_fixture$
+        insert into public.qa_review_item_results (
+            qa_review_id, qa_checklist_item_id, result, evaluator_profile_id,
+            evaluator_role_id
+        )
+        values (
+            'eb000000-0000-4000-8000-000000000001'::uuid,
+            (
+                select item.id
+                from public.qa_checklist_items as item
+                where item.qa_checklist_id = 'ea000000-0000-4000-8000-000000000001'::uuid
+                  and item.dimension = 'strategic'
+            ),
+            'passed',
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver')
+        );
+    $qa_review_item_result_fixture$,
+    'The strategic checklist item is recorded as passed for the fixture review, so the approver can later complete it'
+);
+
+-- -------------------------------------------------------------------------
+-- Read-only proofs, in the fixture state above: one pending qa_review on
+-- the slice-5 qa_pending version.
+-- -------------------------------------------------------------------------
+
+set local role anon;
+
+select throws_ok(
+    $$select count(*) from public.qa_reviews$$,
+    '42501', null,
+    'Anonymous cannot select qa reviews'
+);
+
+set local role authenticated;
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000009';
+
+select results_eq(
+    $$select count(*) from public.qa_reviews$$,
+    $$values (0::bigint)$$,
+    'An authenticated profile with no active role sees no qa reviews'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000008';
+
+select results_eq(
+    $$select count(*) from public.qa_reviews$$,
+    $$values (0::bigint)$$,
+    'An administrator sees no qa reviews -- no cell on this table per Section 11'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000002';
+
+select results_eq(
+    $$select count(*) from public.qa_reviews$$,
+    $$values (1::bigint)$$,
+    'A creative owner sees the review -- they authored the slice-5 scene under this version'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000003';
+
+select results_eq(
+    $$select count(*) from public.qa_reviews$$,
+    $$values (1::bigint)$$,
+    'A director AI operator sees the review -- they authored a generation attempt under this version'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000004';
+
+select results_eq(
+    $$select count(*) from public.qa_reviews$$,
+    $$values (1::bigint)$$,
+    'An editor sees the review -- they authored an asset linked to this version''s content item'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000005';
+
+select results_eq(
+    $$select count(*) from public.qa_reviews$$,
+    $$values (1::bigint)$$,
+    'An approver sees every qa review -- unconditional select'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000006';
+
+select results_eq(
+    $$select count(*) from public.qa_reviews$$,
+    $$values (1::bigint)$$,
+    'A campaign manager sees every qa review -- unconditional select'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000007';
+
+select results_eq(
+    $$select count(*) from public.qa_reviews$$,
+    $$values (0::bigint)$$,
+    'A publisher sees no qa reviews -- the underlying content_version is qa_pending, not approved'
+);
+
+-- -------------------------------------------------------------------------
+-- Insert-authorization proofs. qa_reviews_validate_entry_trigger (before
+-- insert) runs regardless of session role -- every payload below is a
+-- fully valid, trigger-passing review on the 'factual' dimension (a fresh
+-- dimension, distinct from the fixture's 'strategic', avoiding the
+-- content_version+dimension partial unique index on decision = 'pending')
+-- so that every denied attempt fails on RLS alone, not on an unrelated
+-- trigger exception.
+-- -------------------------------------------------------------------------
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000009';
+
+select throws_ok(
+    $test$
+        insert into public.qa_reviews (
+            content_version_id, qa_checklist_id, dimension,
+            reviewer_profile_id, reviewer_role_id, correlation_id, environment
+        )
+        values (
+            'e9800000-0000-4000-8000-000000000002'::uuid,
+            'ea000000-0000-4000-8000-000000000001'::uuid,
+            'factual',
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        )
+    $test$,
+    '42501', null,
+    'An authenticated profile with no active role cannot insert a qa review'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000008';
+
+select throws_ok(
+    $test$
+        insert into public.qa_reviews (
+            content_version_id, qa_checklist_id, dimension,
+            reviewer_profile_id, reviewer_role_id, correlation_id, environment
+        )
+        values (
+            'e9800000-0000-4000-8000-000000000002'::uuid,
+            'ea000000-0000-4000-8000-000000000001'::uuid,
+            'factual',
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        )
+    $test$,
+    '42501', null,
+    'An administrator cannot insert a qa review -- no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000002';
+
+select throws_ok(
+    $test$
+        insert into public.qa_reviews (
+            content_version_id, qa_checklist_id, dimension,
+            reviewer_profile_id, reviewer_role_id, correlation_id, environment
+        )
+        values (
+            'e9800000-0000-4000-8000-000000000002'::uuid,
+            'ea000000-0000-4000-8000-000000000001'::uuid,
+            'factual',
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        )
+    $test$,
+    '42501', null,
+    'A creative owner cannot insert a qa review -- select-only, no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000003';
+
+select throws_ok(
+    $test$
+        insert into public.qa_reviews (
+            content_version_id, qa_checklist_id, dimension,
+            reviewer_profile_id, reviewer_role_id, correlation_id, environment
+        )
+        values (
+            'e9800000-0000-4000-8000-000000000002'::uuid,
+            'ea000000-0000-4000-8000-000000000001'::uuid,
+            'factual',
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        )
+    $test$,
+    '42501', null,
+    'A director AI operator cannot insert a qa review -- select-only, no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000004';
+
+select throws_ok(
+    $test$
+        insert into public.qa_reviews (
+            content_version_id, qa_checklist_id, dimension,
+            reviewer_profile_id, reviewer_role_id, correlation_id, environment
+        )
+        values (
+            'e9800000-0000-4000-8000-000000000002'::uuid,
+            'ea000000-0000-4000-8000-000000000001'::uuid,
+            'factual',
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        )
+    $test$,
+    '42501', null,
+    'An editor cannot insert a qa review -- select-only, no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000006';
+
+select throws_ok(
+    $test$
+        insert into public.qa_reviews (
+            content_version_id, qa_checklist_id, dimension,
+            reviewer_profile_id, reviewer_role_id, correlation_id, environment
+        )
+        values (
+            'e9800000-0000-4000-8000-000000000002'::uuid,
+            'ea000000-0000-4000-8000-000000000001'::uuid,
+            'factual',
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        )
+    $test$,
+    '42501', null,
+    'A campaign manager cannot insert a qa review -- select-only, no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000007';
+
+select throws_ok(
+    $test$
+        insert into public.qa_reviews (
+            content_version_id, qa_checklist_id, dimension,
+            reviewer_profile_id, reviewer_role_id, correlation_id, environment
+        )
+        values (
+            'e9800000-0000-4000-8000-000000000002'::uuid,
+            'ea000000-0000-4000-8000-000000000001'::uuid,
+            'factual',
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        )
+    $test$,
+    '42501', null,
+    'A publisher cannot insert a qa review -- select-only, no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000005';
+
+select lives_ok(
+    $approver_insert_review$
+        insert into public.qa_reviews (
+            id, content_version_id, qa_checklist_id, dimension,
+            reviewer_profile_id, reviewer_role_id, correlation_id, environment
+        )
+        values (
+            'eb000000-0000-4000-8000-000000000002'::uuid,
+            'e9800000-0000-4000-8000-000000000002'::uuid,
+            'ea000000-0000-4000-8000-000000000001'::uuid,
+            'financial',
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        )
+    $approver_insert_review$,
+    'An approver can insert a new qa review'
+);
+
+-- -------------------------------------------------------------------------
+-- Update-authorization proofs. qa_reviews grants UPDATE to authenticated,
+-- so a role with no matching policy does not get an exception -- the
+-- statement simply matches zero rows (is_empty()/results_eq() on
+-- UPDATE ... RETURNING), same mechanism already proven for assets. Only
+-- anon (no table grant at all) still throws. Every denied attempt targets
+-- the fixture's own 'strategic' review (still 'pending' at this point) --
+-- none of them reach qa_reviews_validate_completion_trigger, because RLS
+-- excludes the row from the update's candidate set before the trigger has
+-- a row to fire on.
+-- -------------------------------------------------------------------------
+
+set local role anon;
+
+select throws_ok(
+    $test$
+        update public.qa_reviews
+        set comments = 'anon_attempt'
+        where id = 'eb000000-0000-4000-8000-000000000001'::uuid
+        returning id
+    $test$,
+    '42501', null,
+    'Anonymous cannot update a qa review -- no table privilege at all'
+);
+
+set local role authenticated;
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000009';
+
+select is_empty(
+    $$
+        update public.qa_reviews
+        set comments = 'no_role_attempt'
+        where id = 'eb000000-0000-4000-8000-000000000001'::uuid
+        returning id
+    $$,
+    'An authenticated profile with no active role updates zero qa reviews -- no policy matches'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000008';
+
+select is_empty(
+    $$
+        update public.qa_reviews
+        set comments = 'administrator_attempt'
+        where id = 'eb000000-0000-4000-8000-000000000001'::uuid
+        returning id
+    $$,
+    'An administrator updates zero qa reviews -- no policy exists for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000002';
+
+select is_empty(
+    $$
+        update public.qa_reviews
+        set comments = 'creative_owner_attempt'
+        where id = 'eb000000-0000-4000-8000-000000000001'::uuid
+        returning id
+    $$,
+    'A creative owner updates zero qa reviews -- select-only, no update policy'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000003';
+
+select is_empty(
+    $$
+        update public.qa_reviews
+        set comments = 'director_ai_operator_attempt'
+        where id = 'eb000000-0000-4000-8000-000000000001'::uuid
+        returning id
+    $$,
+    'A director AI operator updates zero qa reviews -- select-only, no update policy'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000004';
+
+select is_empty(
+    $$
+        update public.qa_reviews
+        set comments = 'editor_attempt'
+        where id = 'eb000000-0000-4000-8000-000000000001'::uuid
+        returning id
+    $$,
+    'An editor updates zero qa reviews -- select-only, no update policy'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000006';
+
+select is_empty(
+    $$
+        update public.qa_reviews
+        set comments = 'campaign_manager_attempt'
+        where id = 'eb000000-0000-4000-8000-000000000001'::uuid
+        returning id
+    $$,
+    'A campaign manager updates zero qa reviews -- select-only, no update policy'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000007';
+
+select is_empty(
+    $$
+        update public.qa_reviews
+        set comments = 'publisher_attempt'
+        where id = 'eb000000-0000-4000-8000-000000000001'::uuid
+        returning id
+    $$,
+    'A publisher updates zero qa reviews -- select-only, no update policy'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000005';
+
+select results_eq(
+    $$
+        update public.qa_reviews
+        set decision = 'approved'
+        where id = 'eb000000-0000-4000-8000-000000000001'::uuid
+        returning id
+    $$,
+    $$values ('eb000000-0000-4000-8000-000000000001'::uuid)$$,
+    'An approver can complete the review -- one recorded passed item, zero blocking defects'
 );
 
 reset role;
