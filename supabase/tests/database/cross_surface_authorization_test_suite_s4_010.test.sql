@@ -67,7 +67,7 @@ begin;
 
 create extension if not exists pgtap with schema extensions;
 
-select plan(163);
+select plan(189);
 
 -- -------------------------------------------------------------------------
 -- Fixtures: one profile per F4-relevant role (creative_owner, director_ai_
@@ -3228,6 +3228,510 @@ select results_eq(
     $$,
     $$values ('ec000000-0000-4000-8000-000000000003'::uuid)$$,
     'An approver can complete the resolution of any defect, including one assigned to a different role -- unconditional update policy'
+);
+
+-- Slice 6 leaves the role as 'authenticated' impersonating approver (the
+-- next slice's first proof re-asserts its own role before reading).
+reset role;
+
+-- -------------------------------------------------------------------------
+-- Slice 7 of N: approvals (Section 11, last of the 7 named tables).
+-- Immutable like scenes/generation_attempts/asset_links -- select + insert
+-- only, no UPDATE grant for any role (Section 5's own header: "no update
+-- policy exists for any role, same rule as Section 1/2") -- so the
+-- update-authorization proof collapses to a single throws_ok, same economy
+-- already used for those three append-only tables.
+--
+-- Read authorization reuses the exact three helpers already proven in
+-- slice 5 (qa_reviews) -- creative_owner/director_ai_operator/editor
+-- "related" via s4_008_is_content_version_scene_authored/_generation_
+-- authored/_asset_authored, approver/campaign_manager unconditional,
+-- publisher conditional on the target content_version already being
+-- 'approved'. Editor's helper is the one this session converted to
+-- SECURITY DEFINER in slice 5 (20260820000000_content_version_asset_
+-- authored_security_definer_fix_s4_010.sql) -- this slice is the real,
+-- promised verification that the fix carries over to `approvals`, not an
+-- assumption: no new asset_link fixture is created for editor below, the
+-- slice-5 editor asset_link (bound to the shared content_item, not to any
+-- one content_version) is reused as-is.
+--
+-- Ordering deviates from every earlier slice on purpose: read-proofs
+-- normally run before insert-proofs, but approvals has no pre-existing row
+-- to read until one is actually inserted (unlike qa_reviews/qa_defects,
+-- whose fixture review/defect already existed before their own read-proof
+-- section). So this slice inserts first (denied-role attempts, then the
+-- one approver-authored row), then reads the row that now exists, then
+-- proves it can never be updated.
+--
+-- Fixture cost note: approvals_validate_entry_trigger (S4-006) requires
+-- the target content_version to be 'approval_pending' AND
+-- is_content_version_qa_complete() to hold -- eight approved qa_reviews
+-- (one per mandatory dimension, all on the same active checklist) and
+-- zero open critical/major qa_defects. There is no way to get a single
+-- successful approvals INSERT past that gate without building the full
+-- eight-dimension chain once; every denied-role attempt below targets this
+-- same fully-qualifying content_version (never an incomplete one), so
+-- every denial proves RLS alone, not an unrelated trigger exception --
+-- same discipline already used for qa_reviews/qa_defects' own insert
+-- proofs.
+-- -------------------------------------------------------------------------
+
+select lives_ok(
+    $approval_pending_version_fixture$
+        insert into public.content_versions (
+            id, content_item_id, version_number, status, script, caption,
+            master_asset_id, checksum
+        )
+        values (
+            'e9800000-0000-4000-8000-000000000004'::uuid,
+            'e5000000-0000-4000-8000-000000000003'::uuid,
+            6, 'qa_pending',
+            'S4-010 fixture script (slice 7, approval_pending-to-be)',
+            'S4-010 fixture caption (slice 7, approval_pending-to-be)',
+            'e9600000-0000-4000-8000-000000000001'::uuid,
+            repeat('a', 64)
+        );
+
+        insert into public.scenes (
+            id, content_item_id, content_version_id, scene_number,
+            narrative_objective, target_duration_seconds,
+            subject_specification, action_specification,
+            environment_specification, camera_specification,
+            lighting_specification, continuity_specification,
+            created_by
+        )
+        values (
+            'e6000000-0000-4000-8000-000000000004'::uuid,
+            'e5000000-0000-4000-8000-000000000003'::uuid,
+            'e9800000-0000-4000-8000-000000000004'::uuid,
+            1,
+            'S4-010 fixture narrative objective (slice 7 version)',
+            15.000,
+            'S4-010 fixture subject', 'S4-010 fixture action',
+            'S4-010 fixture environment', 'S4-010 fixture camera',
+            'S4-010 fixture lighting', 'S4-010 fixture continuity',
+            'e4000000-0000-4000-8000-000000000002'::uuid
+        );
+
+        insert into public.scene_acceptance_criteria (
+            scene_id, criterion_number, criterion_type, criterion_text,
+            created_by
+        )
+        values (
+            'e6000000-0000-4000-8000-000000000004'::uuid,
+            1, 'required',
+            'S4-010 fixture acceptance criterion (slice 7)',
+            'e4000000-0000-4000-8000-000000000002'::uuid
+        );
+    $approval_pending_version_fixture$,
+    'A new content_version (qa_pending, to become approval_pending) and its creative-owner-authored scene and acceptance criterion are created'
+);
+
+select lives_ok(
+    $slice7_prompt_version_fixture$
+        insert into public.scene_prompt_versions (
+            id, scene_id, version_number, prompt_text, created_by
+        )
+        values (
+            'e7000000-0000-4000-8000-000000000003'::uuid,
+            'e6000000-0000-4000-8000-000000000004'::uuid,
+            1,
+            'S4-010 fixture generation prompt (slice 7)',
+            'e4000000-0000-4000-8000-000000000003'::uuid
+        );
+    $slice7_prompt_version_fixture$,
+    'A prompt version is created under the slice-7 scene'
+);
+
+set local role service_role;
+
+select lives_ok(
+    $$
+        select public.resolve_scene_generation_budget(
+            'e6000000-0000-4000-8000-000000000004'::uuid,
+            'test',
+            'e4000000-0000-4000-8000-000000000003'::uuid
+        )
+    $$,
+    'The generation budget for the slice-7 scene resolves in the test environment'
+);
+
+reset role;
+
+select lives_ok(
+    $slice7_generation_attempt_fixture$
+        insert into public.generation_attempts (
+            id, scene_id, prompt_version_id, attempt_number, attempt_phase,
+            prompt_text_snapshot, provider_code, model_identifier,
+            changed_variable, result_reference, duration_seconds, created_by
+        )
+        values (
+            'e8000000-0000-4000-8000-000000000004'::uuid,
+            'e6000000-0000-4000-8000-000000000004'::uuid,
+            'e7000000-0000-4000-8000-000000000003'::uuid,
+            1, 'exploration',
+            'S4-010 fixture generation prompt (slice 7)',
+            'synthetic', 'synthetic-model-v1',
+            'S4-010 fixture variable (slice 7)',
+            jsonb_build_object(
+                'kind', 'synthetic',
+                'synthetic_locator', 's4-010-fixture-007'
+            ),
+            5.000,
+            'e4000000-0000-4000-8000-000000000003'::uuid
+        );
+    $slice7_generation_attempt_fixture$,
+    'A generation attempt under the slice-7 scene is created, authored by the director-ai-operator profile'
+);
+
+select lives_ok(
+    $slice7_reviews_fixture$
+        insert into public.qa_reviews (
+            id, content_version_id, qa_checklist_id, dimension,
+            reviewer_profile_id, reviewer_role_id, correlation_id, environment
+        )
+        values
+            ('eb000000-0000-4000-8000-000000000003'::uuid, 'e9800000-0000-4000-8000-000000000004'::uuid, 'ea000000-0000-4000-8000-000000000001'::uuid, 'strategic', 'e4000000-0000-4000-8000-000000000005'::uuid, (select id from public.roles where code = 'approver'), gen_random_uuid(), 'test'),
+            ('eb000000-0000-4000-8000-000000000004'::uuid, 'e9800000-0000-4000-8000-000000000004'::uuid, 'ea000000-0000-4000-8000-000000000001'::uuid, 'factual', 'e4000000-0000-4000-8000-000000000005'::uuid, (select id from public.roles where code = 'approver'), gen_random_uuid(), 'test'),
+            ('eb000000-0000-4000-8000-000000000005'::uuid, 'e9800000-0000-4000-8000-000000000004'::uuid, 'ea000000-0000-4000-8000-000000000001'::uuid, 'financial', 'e4000000-0000-4000-8000-000000000005'::uuid, (select id from public.roles where code = 'approver'), gen_random_uuid(), 'test'),
+            ('eb000000-0000-4000-8000-000000000006'::uuid, 'e9800000-0000-4000-8000-000000000004'::uuid, 'ea000000-0000-4000-8000-000000000001'::uuid, 'visual', 'e4000000-0000-4000-8000-000000000005'::uuid, (select id from public.roles where code = 'approver'), gen_random_uuid(), 'test'),
+            ('eb000000-0000-4000-8000-000000000007'::uuid, 'e9800000-0000-4000-8000-000000000004'::uuid, 'ea000000-0000-4000-8000-000000000001'::uuid, 'rights', 'e4000000-0000-4000-8000-000000000005'::uuid, (select id from public.roles where code = 'approver'), gen_random_uuid(), 'test'),
+            ('eb000000-0000-4000-8000-000000000008'::uuid, 'e9800000-0000-4000-8000-000000000004'::uuid, 'ea000000-0000-4000-8000-000000000001'::uuid, 'brand', 'e4000000-0000-4000-8000-000000000005'::uuid, (select id from public.roles where code = 'approver'), gen_random_uuid(), 'test'),
+            ('eb000000-0000-4000-8000-000000000009'::uuid, 'e9800000-0000-4000-8000-000000000004'::uuid, 'ea000000-0000-4000-8000-000000000001'::uuid, 'technical', 'e4000000-0000-4000-8000-000000000005'::uuid, (select id from public.roles where code = 'approver'), gen_random_uuid(), 'test'),
+            ('eb00000a-0000-4000-8000-000000000001'::uuid, 'e9800000-0000-4000-8000-000000000004'::uuid, 'ea000000-0000-4000-8000-000000000001'::uuid, 'conversion', 'e4000000-0000-4000-8000-000000000005'::uuid, (select id from public.roles where code = 'approver'), gen_random_uuid(), 'test');
+    $slice7_reviews_fixture$,
+    'One pending qa_review per mandatory dimension (all eight) is created for the slice-7 content_version, on the same active checklist'
+);
+
+select lives_ok(
+    $slice7_item_results_fixture$
+        insert into public.qa_review_item_results (
+            qa_review_id, qa_checklist_item_id, result, evaluator_profile_id,
+            evaluator_role_id
+        )
+        values
+            ('eb000000-0000-4000-8000-000000000003'::uuid, (select id from public.qa_checklist_items where qa_checklist_id = 'ea000000-0000-4000-8000-000000000001'::uuid and dimension = 'strategic'), 'passed', 'e4000000-0000-4000-8000-000000000005'::uuid, (select id from public.roles where code = 'approver')),
+            ('eb000000-0000-4000-8000-000000000004'::uuid, (select id from public.qa_checklist_items where qa_checklist_id = 'ea000000-0000-4000-8000-000000000001'::uuid and dimension = 'factual'), 'passed', 'e4000000-0000-4000-8000-000000000005'::uuid, (select id from public.roles where code = 'approver')),
+            ('eb000000-0000-4000-8000-000000000005'::uuid, (select id from public.qa_checklist_items where qa_checklist_id = 'ea000000-0000-4000-8000-000000000001'::uuid and dimension = 'financial'), 'passed', 'e4000000-0000-4000-8000-000000000005'::uuid, (select id from public.roles where code = 'approver')),
+            ('eb000000-0000-4000-8000-000000000006'::uuid, (select id from public.qa_checklist_items where qa_checklist_id = 'ea000000-0000-4000-8000-000000000001'::uuid and dimension = 'visual'), 'passed', 'e4000000-0000-4000-8000-000000000005'::uuid, (select id from public.roles where code = 'approver')),
+            ('eb000000-0000-4000-8000-000000000007'::uuid, (select id from public.qa_checklist_items where qa_checklist_id = 'ea000000-0000-4000-8000-000000000001'::uuid and dimension = 'rights'), 'passed', 'e4000000-0000-4000-8000-000000000005'::uuid, (select id from public.roles where code = 'approver')),
+            ('eb000000-0000-4000-8000-000000000008'::uuid, (select id from public.qa_checklist_items where qa_checklist_id = 'ea000000-0000-4000-8000-000000000001'::uuid and dimension = 'brand'), 'passed', 'e4000000-0000-4000-8000-000000000005'::uuid, (select id from public.roles where code = 'approver')),
+            ('eb000000-0000-4000-8000-000000000009'::uuid, (select id from public.qa_checklist_items where qa_checklist_id = 'ea000000-0000-4000-8000-000000000001'::uuid and dimension = 'technical'), 'passed', 'e4000000-0000-4000-8000-000000000005'::uuid, (select id from public.roles where code = 'approver')),
+            ('eb00000a-0000-4000-8000-000000000001'::uuid, (select id from public.qa_checklist_items where qa_checklist_id = 'ea000000-0000-4000-8000-000000000001'::uuid and dimension = 'conversion'), 'passed', 'e4000000-0000-4000-8000-000000000005'::uuid, (select id from public.roles where code = 'approver'));
+    $slice7_item_results_fixture$,
+    'Each of the eight reviews records its own dimension checklist item as passed'
+);
+
+select lives_ok(
+    $slice7_complete_reviews_fixture$
+        update public.qa_reviews set decision = 'approved' where id = 'eb000000-0000-4000-8000-000000000003'::uuid;
+        update public.qa_reviews set decision = 'approved' where id = 'eb000000-0000-4000-8000-000000000004'::uuid;
+        update public.qa_reviews set decision = 'approved' where id = 'eb000000-0000-4000-8000-000000000005'::uuid;
+        update public.qa_reviews set decision = 'approved' where id = 'eb000000-0000-4000-8000-000000000006'::uuid;
+        update public.qa_reviews set decision = 'approved' where id = 'eb000000-0000-4000-8000-000000000007'::uuid;
+        update public.qa_reviews set decision = 'approved' where id = 'eb000000-0000-4000-8000-000000000008'::uuid;
+        update public.qa_reviews set decision = 'approved' where id = 'eb000000-0000-4000-8000-000000000009'::uuid;
+        update public.qa_reviews set decision = 'approved' where id = 'eb00000a-0000-4000-8000-000000000001'::uuid;
+    $slice7_complete_reviews_fixture$,
+    'All eight reviews are completed with decision approved -- the slice-7 content_version is now QA-complete'
+);
+
+select lives_ok(
+    $$
+        update public.content_versions
+        set status = 'approval_pending'
+        where id = 'e9800000-0000-4000-8000-000000000004'::uuid
+    $$,
+    'The slice-7 content_version transitions directly to approval_pending (no allowlist/trigger guards this column, S3-003)'
+);
+
+-- -------------------------------------------------------------------------
+-- Insert-authorization proofs. Every payload targets the now QA-complete,
+-- approval_pending slice-7 content_version and its real master asset/
+-- checksum/approver identity, so every denied attempt fails on RLS alone.
+--
+-- The fixture section above ends with a bare `reset role;` (after the
+-- service_role budget-resolve step), which reverts to the bypass/superuser
+-- connection identity, not 'authenticated' -- unlike every other slice's
+-- insert-proof section, which inherits 'authenticated' from its own
+-- preceding read-proof section. Since this slice deliberately runs insert
+-- before read (see the slice-7 header), 'authenticated' has to be
+-- reasserted explicitly here, or every jwt.claim.sub below is set on a
+-- superuser connection that bypasses RLS entirely -- exactly the mistake
+-- the first real run of this slice caught (test 172 caught no exception
+-- at all; 173-179 then hit 23505 on approvals_content_version_unique
+-- because the first, illegitimately-successful insert had already
+-- consumed the one-row-per-content_version slot).
+-- -------------------------------------------------------------------------
+
+set local role authenticated;
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000009';
+
+select throws_ok(
+    $test$
+        insert into public.approvals (
+            content_version_id, master_asset_id, checksum,
+            approver_profile_id, approver_role_id, correlation_id, environment
+        )
+        values (
+            'e9800000-0000-4000-8000-000000000004'::uuid,
+            'e9600000-0000-4000-8000-000000000001'::uuid,
+            repeat('a', 64),
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        )
+    $test$,
+    '42501', null,
+    'An authenticated profile with no active role cannot insert an approval'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000008';
+
+select throws_ok(
+    $test$
+        insert into public.approvals (
+            content_version_id, master_asset_id, checksum,
+            approver_profile_id, approver_role_id, correlation_id, environment
+        )
+        values (
+            'e9800000-0000-4000-8000-000000000004'::uuid,
+            'e9600000-0000-4000-8000-000000000001'::uuid,
+            repeat('a', 64),
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        )
+    $test$,
+    '42501', null,
+    'An administrator cannot insert an approval -- no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000002';
+
+select throws_ok(
+    $test$
+        insert into public.approvals (
+            content_version_id, master_asset_id, checksum,
+            approver_profile_id, approver_role_id, correlation_id, environment
+        )
+        values (
+            'e9800000-0000-4000-8000-000000000004'::uuid,
+            'e9600000-0000-4000-8000-000000000001'::uuid,
+            repeat('a', 64),
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        )
+    $test$,
+    '42501', null,
+    'A creative owner cannot insert an approval -- related read only, no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000003';
+
+select throws_ok(
+    $test$
+        insert into public.approvals (
+            content_version_id, master_asset_id, checksum,
+            approver_profile_id, approver_role_id, correlation_id, environment
+        )
+        values (
+            'e9800000-0000-4000-8000-000000000004'::uuid,
+            'e9600000-0000-4000-8000-000000000001'::uuid,
+            repeat('a', 64),
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        )
+    $test$,
+    '42501', null,
+    'A director AI operator cannot insert an approval -- related read only, no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000004';
+
+select throws_ok(
+    $test$
+        insert into public.approvals (
+            content_version_id, master_asset_id, checksum,
+            approver_profile_id, approver_role_id, correlation_id, environment
+        )
+        values (
+            'e9800000-0000-4000-8000-000000000004'::uuid,
+            'e9600000-0000-4000-8000-000000000001'::uuid,
+            repeat('a', 64),
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        )
+    $test$,
+    '42501', null,
+    'An editor cannot insert an approval -- related read only, no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000006';
+
+select throws_ok(
+    $test$
+        insert into public.approvals (
+            content_version_id, master_asset_id, checksum,
+            approver_profile_id, approver_role_id, correlation_id, environment
+        )
+        values (
+            'e9800000-0000-4000-8000-000000000004'::uuid,
+            'e9600000-0000-4000-8000-000000000001'::uuid,
+            repeat('a', 64),
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        )
+    $test$,
+    '42501', null,
+    'A campaign manager cannot insert an approval -- select-only, no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000007';
+
+select throws_ok(
+    $test$
+        insert into public.approvals (
+            content_version_id, master_asset_id, checksum,
+            approver_profile_id, approver_role_id, correlation_id, environment
+        )
+        values (
+            'e9800000-0000-4000-8000-000000000004'::uuid,
+            'e9600000-0000-4000-8000-000000000001'::uuid,
+            repeat('a', 64),
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        )
+    $test$,
+    '42501', null,
+    'A publisher cannot insert an approval -- conditional select only, no insert policy for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000005';
+
+select lives_ok(
+    $approver_insert_approval$
+        insert into public.approvals (
+            id, content_version_id, master_asset_id, checksum,
+            approver_profile_id, approver_role_id, correlation_id, environment
+        )
+        values (
+            'ed000000-0000-4000-8000-000000000001'::uuid,
+            'e9800000-0000-4000-8000-000000000004'::uuid,
+            'e9600000-0000-4000-8000-000000000001'::uuid,
+            repeat('a', 64),
+            'e4000000-0000-4000-8000-000000000005'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        )
+    $approver_insert_approval$,
+    'An approver can insert the final approval for a QA-complete, approval_pending content_version'
+);
+
+-- -------------------------------------------------------------------------
+-- Read-only proofs, now that the one approvals row exists. The slice-7
+-- content_version is still 'approval_pending' (not 'approved' -- no RPC
+-- was called to transition it further), so publisher is expected to see
+-- zero rows, the one negative case in an otherwise-unconditional-or-
+-- related roster (same shape already proven for qa_reviews in slice 5).
+-- -------------------------------------------------------------------------
+
+set local role anon;
+
+select throws_ok(
+    $$select count(*) from public.approvals$$,
+    '42501', null,
+    'Anonymous cannot select approvals'
+);
+
+set local role authenticated;
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000009';
+
+select results_eq(
+    $$select count(*) from public.approvals$$,
+    $$values (0::bigint)$$,
+    'An authenticated profile with no active role sees zero approvals'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000008';
+
+select results_eq(
+    $$select count(*) from public.approvals$$,
+    $$values (0::bigint)$$,
+    'An administrator sees zero approvals -- no policy exists for this role'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000002';
+
+select results_eq(
+    $$select id from public.approvals$$,
+    $$values ('ed000000-0000-4000-8000-000000000001'::uuid)$$,
+    'A creative owner sees the approval -- they authored the slice-7 scene (s4_008_is_content_version_scene_authored)'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000003';
+
+select results_eq(
+    $$select id from public.approvals$$,
+    $$values ('ed000000-0000-4000-8000-000000000001'::uuid)$$,
+    'A director AI operator sees the approval -- they authored the slice-7 generation attempt (s4_008_is_content_version_generation_authored)'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000004';
+
+select results_eq(
+    $$select id from public.approvals$$,
+    $$values ('ed000000-0000-4000-8000-000000000001'::uuid)$$,
+    'An editor sees the approval -- they authored an asset linked to the shared content_item (s4_008_is_content_version_asset_authored, SECURITY DEFINER since slice 5 -- the fix carries over here, confirmed with real evidence, not assumed)'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000005';
+
+select results_eq(
+    $$select count(*) from public.approvals$$,
+    $$values (1::bigint)$$,
+    'An approver sees the approval -- unconditional select'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000006';
+
+select results_eq(
+    $$select count(*) from public.approvals$$,
+    $$values (1::bigint)$$,
+    'A campaign manager sees the approval -- unconditional select'
+);
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000007';
+
+select results_eq(
+    $$select count(*) from public.approvals$$,
+    $$values (0::bigint)$$,
+    'A publisher sees no approvals -- the underlying content_version is approval_pending, not approved'
+);
+
+-- -------------------------------------------------------------------------
+-- Update-authorization proof. approvals grants no UPDATE to any role
+-- (Section 5 header) -- a single throws_ok, same economy already used for
+-- scenes/generation_attempts/asset_links. Explicitly re-asserting the
+-- approver identity here (the preceding read-proof left jwt.claim.sub set
+-- to publisher) so the test actually proves what its own name claims.
+-- -------------------------------------------------------------------------
+
+set local request.jwt.claim.sub = 'e4000000-0000-4000-8000-000000000005';
+
+select throws_ok(
+    $test$
+        update public.approvals
+        set comments = 'approver_attempt'
+        where id = 'ed000000-0000-4000-8000-000000000001'::uuid
+    $test$,
+    '42501', null,
+    'Even an approver cannot update an approval -- immutable, no UPDATE grant exists for any role'
 );
 
 reset role;
