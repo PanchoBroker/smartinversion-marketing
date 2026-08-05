@@ -71,6 +71,20 @@ Documento permanente y acumulativo de la Metodología Oficial de Trabajo 4.0. Vi
 
 **Caso real:** `qa_defects` resolución (S4-009) — el usuario confirmó "solo approver resuelve, lectura literal del trigger".
 
+**Confirmación con evidencia real (S4-010 rebanada 6, 2026-08-05):** la lectura literal significa exactamente eso — el trigger `s4_005_validate_defect` solo exige que `resolved_by`/`resolved_role_id` identifiquen a un `approver` activo, nunca que la sesión que ejecuta el UPDATE lo sea. RLS (`qa_defects_*_assigned_update`) admite el UPDATE de un rol asignado (creative_owner/director_ai_operator/editor) sobre su propio defecto; el trigger es el único gate real sobre la atribución. Probado con pgTAP real: un rol asignado que intenta auto-atribuirse (`resolved_by` = su propio perfil) → `throws_ok` 42501; el mismo rol, mismo defecto, atribuyendo a un approver real → `results_eq` éxito. `Files=36, Tests=1369, Result: PASS` primer intento, sin migración correctiva — la interpretación ya decidida en S4-009 resultó ser exactamente el comportamiento real de RLS+trigger, no requirió ajuste.
+
+---
+
+## Patrón: `reset role;` revierte al rol bypass de la conexión, no a `authenticated` — reafirmarlo explícitamente tras cualquier paso `service_role`/`reset role;` intermedio
+
+**Cuándo aplica:** cualquier rebanada cuya sección de fixtures incluya un paso `set local role service_role;` seguido de `reset role;` (ej. `resolve_scene_generation_budget`), cuando la sección de pruebas que le sigue inmediatamente empieza fijando `request.jwt.claim.sub` sin también fijar `set local role authenticated;`.
+
+**Mecánica:** `reset role;` no vuelve a `authenticated` — vuelve al rol de conexión por defecto del arnés de pgTAP (el mismo rol bypass/superusuario bajo el que corren los fixtures, que ignora RLS por completo). En las rebanadas anteriores esto nunca causó un fallo porque su sección de lectura SIEMPRE fijaba `set local role anon;` luego `set local role authenticated;` explícitamente antes de la primera prueba, y esa asignación de rol persistía durante toda la sección de insert/update que le seguía. La rebanada 7 (`approvals`) invirtió el orden (insert antes que read, por necesidad de negocio) y arrancó su sección de insert-proofs fijando solo `request.jwt.claim.sub` sin reafirmar el rol — cada intento de rol denegado corrió bajo el rol bypass, RLS nunca se evaluó, el primer intento escribió la fila real y los siguientes chocaron contra la unique constraint de la tabla.
+
+**Fix:** cualquier sección de pruebas que sea la PRIMERA en usar `request.jwt.claim.sub` después de un `reset role;` de fixture debe empezar con `set local role authenticated;` explícito, sin importar si una sección anterior ya lo había fijado — no asumir que el rol persiste a través de un `reset role;` intermedio.
+
+**Caso real:** rebanada 7 (`approvals`, S4-010), primer intento real `Files=36, Tests=1395, Failed: 11` (tests 172-179 por el rol equivocado, 183-185 por la fila duplicada resultante). Corregido antes del segundo intento.
+
 ---
 
 ## Patrón: entrega de archivos vía device bridge en este proyecto (Modo A)
@@ -95,6 +109,18 @@ Documento permanente y acumulativo de la Metodología Oficial de Trabajo 4.0. Vi
 
 ---
 
+## Patrón: `repomix-output.txt` dispara falsos positivos de `gitleaks` (Secret scanning) para fixtures ya allowlisteadas por ruta
+
+**Cuándo aplica:** el check requerido "CI / Secret scanning" falla en un PR que solo toca `repomix-output.txt` (o lo incluye junto con cambios legítimos), con hallazgos `generic-api-key` sobre contenido que ya vive en un archivo fuente permitido.
+
+**Mecánica:** `.gitleaks.toml` tiene un `[allowlist] paths` con regex por ruta de archivo real (ej. `tests/api/jobs-authorization\.test\.ts`, que contiene el fixture sintético `const CONFIGURED_SECRET = "s2-010-fixture-secret";`, ya resuelto en S2-010). `repomix-output.txt` es una instantánea agregada que reproduce ese mismo contenido bajo una ruta distinta — el allowlist por ruta no lo cubre, así que gitleaks lo vuelve a marcar como "nuevo" hallazgo cada vez que el snapshot se regenera y comitea, aunque el contenido real ya esté revisado y sea sintético (no un secreto real). Diagnosticado leyendo el contenido real señalado por gitleaks (grep del texto del hallazgo en `repomix-output.txt`) y comparándolo contra `.gitleaks.toml` — nunca asumir que es un falso positivo sin verificar la fuente real.
+
+**Fix:** agregar `'''^repomix-output\.txt$'''` al `[allowlist] paths` de `.gitleaks.toml` — excluye el snapshot agregado completo del escaneo, sin reducir cobertura real (los archivos fuente originales se siguen escaneando en su propia ruta). Aplicado en el PR de S4-010 (rebanadas S4-010, commit del fix de CI).
+
+**Archivo canónico:** PR de S4-010 (`feat/f4-010-cross-surface-authorization` → `main`), check "CI / Secret scanning" fallando por el commit `63b5567` (refresh de repomix tras rebanada 4).
+
+---
+
 ## Patrón: un test file olvidado en la entrega rompe la validación continua sin dar error visible
 
 **Cuándo aplica:** al entregar cualquier endpoint o pieza de dominio nuevo.
@@ -102,6 +128,20 @@ Documento permanente y acumulativo de la Metodología Oficial de Trabajo 4.0. Vi
 **Mecánica:** si se entrega el código pero se olvida el archivo de test dedicado, la suite completa puede seguir corriendo con el mismo número de tests que antes — "typecheck limpio" y "suite verde" no son suficiente evidencia de que algo nuevo se validó. Verificar siempre que el conteo total de tests suba exactamente en la cantidad esperada del archivo nuevo antes de dar la iteración por cerrada.
 
 **Caso real:** creación de `qa_defects` (S4-009) — se detectó porque la suite corrió el mismo número exacto de tests que antes del cambio.
+
+---
+
+## Patrón: helper SECURITY INVOKER que necesita leer una tabla sin policy SELECT para el rol que llama → falso silencioso, no excepción
+
+**Cuándo aplica:** cualquier función helper `security invoker` (o sin especificar, que es el default) usada dentro de una policy RLS, cuando esa función hace un `join`/subquery propio contra una tabla adicional (no solo la tabla protegida por la policy que la invoca).
+
+**Mecánica:** el comentario de origen de la función puede afirmar "authenticated ya tiene SELECT en todas las tablas que estos helpers tocan" — esa premisa hay que verificarla tabla por tabla, no asumirla por analogía con helpers hermanos. Si el rol que ejecuta (ej. `editor`, `director_ai_operator`) no tiene NINGUNA policy SELECT sobre esa tabla adicional, RLS filtra el join interno a 0 filas de forma silenciosa — no lanza excepción, el `exists()` simplemente evalúa `false` para ese rol, sin importar si la condición de negocio real se cumple. Se manifiesta como un falso negativo en el pgTAP (`results_eq` con `(0)` donde se esperaba `(1)`), nunca como un error de permisos visible.
+
+**Fix:** convertir la función puntual a `security definer` (con `set search_path = ''` y `grant execute` acotado a `authenticated`), preservando intacto el filtro de negocio que ya gatea el resultado (ej. `asset.created_by = p_profile_id`) — no se expone privilegio nuevo, la función sigue devolviendo solo un booleano.
+
+**Caso real y archivo canónico del fix:** `s4_008_is_content_version_asset_authored(uuid, uuid)` (S4-008/S4-010, rebanada 5 de `qa_reviews`) — necesitaba leer `content_versions.content_item_id` internamente, pero ni `editor` ni `director_ai_operator` tienen policy SELECT sobre `content_versions` (solo `creative_owner`, `approver`, `campaign_manager`, `publisher`-si-aprobado). Migración: `supabase/migrations/20260820000000_content_version_asset_authored_security_definer_fix_s4_010.sql`.
+
+**Variante a vigilar:** el mismo helper respalda "editor Related R" en `approvals` (rebanada 7) — comparte el bug y ya comparte el fix (misma función), pero confirmar con evidencia real de esa rebanada, no dar por cerrado solo por analogía.
 
 ---
 
