@@ -13,4 +13,5 @@ paths = [
 ]
 regexes = [
   '''synthetic-delivery-\d{3}''',
+  '''s2-010-fixture-secret''',
 ]
