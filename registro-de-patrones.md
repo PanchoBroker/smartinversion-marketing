@@ -145,6 +145,20 @@ Documento permanente y acumulativo de la Metodología Oficial de Trabajo 4.0. Vi
 
 ---
 
+## Patrón: validar sintaxis/lógica de una migración + su pgTAP localmente antes de entregarla al usuario
+
+**Cuándo aplica:** cualquier migración nueva con trigger/CHECK/función propios, antes de entregarla junto con su archivo de test pgTAP.
+
+**Mecánica:** el entorno cloud del asistente (Modo A) trae Postgres 16 y el paquete `postgresql-16-pgtap` instalables vía `apt` sin red hacia el proyecto real. Se puede levantar el cluster local (`sudo pg_ctlcluster 16 main start`), crear una base de datos descartable con un stub mínimo de las tablas de las que depende la migración nueva (columnas exactas tomadas de migraciones reales ya mergeadas, vía `repomix-output.txt`, no inventadas), aplicar la migración nueva y correr el archivo de test con `pg_prove` antes de entregar ambos archivos al usuario.
+
+**Valor real:** atrapa errores de sintaxis SQL, lógica de trigger/CHECK equivocada, o desajuste entre fixture y columnas reales, sin gastar una ronda completa del usuario (`npx supabase db reset && npx supabase test db` contra Docker, más lento y con el ritual completo del Patrón "entrega de archivos vía device bridge").
+
+**No reemplaza la evidencia oficial del proyecto (Regla 3):** el stub es un subconjunto mínimo de la cadena real de migraciones -- no replica el stack completo de Supabase (schema `auth` real de GoTrue, roles/políticas RLS ya acumuladas de segmentos previos, extensiones adicionales). Un PASS local del asistente es una señal de calidad, nunca el cierre de la iteración; el cierre real sigue exigiendo la salida pegada del comando real del usuario contra su propio stack.
+
+**Caso real:** S5-002 iteración 1 (`publications` -- tabla + máquina de estados), validado localmente 41/41 PASS al primer intento contra un stub de `profiles`/`opportunities`/`campaigns`/`content_items`/`content_versions`, luego confirmado por el usuario contra el stack real (`Files=37, Tests=1436, Result: PASS`, exactamente 1395+41).
+
+---
+
 ## Patrón: F6 (Aprendizaje) es un track paralelo, no una fase futura fuera de secuencia
 
 **Cuándo aplica:** al encontrar archivos o migraciones con prefijo/referencia a F6 (`learning_records` y vistas asociadas) mientras se trabaja en F4/F5.
