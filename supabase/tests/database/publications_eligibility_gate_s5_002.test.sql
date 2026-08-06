@@ -142,19 +142,25 @@ select lives_ok(
 select lives_ok(
     $case_rows$
         -- Case A: draft, never approved.
-        insert into public.content_versions (id, content_item_id, script, caption, status, created_by)
+        -- Cases A-D all attach to content_item 006 (S5-002 iteration 2a,
+        -- 3rd real CI failure): content_versions.version_number has no
+        -- auto-increment, only "not null default 1" plus
+        -- unique(content_item_id, version_number) -- every insert must set
+        -- an explicit, ascending version_number per content_item or the
+        -- second row for the same content_item collides on the default.
+        insert into public.content_versions (id, content_item_id, version_number, script, caption, status, created_by)
         values (
             'e5022000-0000-4000-8000-000000000010'::uuid,
-            'e5022000-0000-4000-8000-000000000006'::uuid,
+            'e5022000-0000-4000-8000-000000000006'::uuid, 1,
             'A script', 'A caption', 'draft',
             'e5022000-0000-4000-8000-000000000001'::uuid
         );
 
         -- Case B: status says approved, but no approvals row exists.
-        insert into public.content_versions (id, content_item_id, script, caption, status, created_by)
+        insert into public.content_versions (id, content_item_id, version_number, script, caption, status, created_by)
         values (
             'e5022000-0000-4000-8000-000000000011'::uuid,
-            'e5022000-0000-4000-8000-000000000006'::uuid,
+            'e5022000-0000-4000-8000-000000000006'::uuid, 2,
             'B script', 'B caption', 'approved',
             'e5022000-0000-4000-8000-000000000001'::uuid
         );
@@ -181,10 +187,10 @@ select lives_ok(
             'e5022000-0000-4000-8000-000000000001'::uuid
         );
 
-        insert into public.content_versions (id, content_item_id, script, caption, master_asset_id, checksum, status, created_by)
+        insert into public.content_versions (id, content_item_id, version_number, script, caption, master_asset_id, checksum, status, created_by)
         values (
             'e5022000-0000-4000-8000-000000000012'::uuid,
-            'e5022000-0000-4000-8000-000000000006'::uuid,
+            'e5022000-0000-4000-8000-000000000006'::uuid, 3,
             'C script', 'C caption',
             'e5022000-0000-4000-8000-000000000014'::uuid, repeat('a1', 32),
             'approved', 'e5022000-0000-4000-8000-000000000001'::uuid
@@ -222,10 +228,10 @@ select lives_ok(
             'e5022000-0000-4000-8000-000000000001'::uuid
         );
 
-        insert into public.content_versions (id, content_item_id, script, caption, master_asset_id, checksum, status, created_by)
+        insert into public.content_versions (id, content_item_id, version_number, script, caption, master_asset_id, checksum, status, created_by)
         values (
             'e5022000-0000-4000-8000-000000000016'::uuid,
-            'e5022000-0000-4000-8000-000000000006'::uuid,
+            'e5022000-0000-4000-8000-000000000006'::uuid, 4,
             'D script', 'D caption',
             'e5022000-0000-4000-8000-000000000018'::uuid, repeat('b2', 32),
             'approved', 'e5022000-0000-4000-8000-000000000001'::uuid
