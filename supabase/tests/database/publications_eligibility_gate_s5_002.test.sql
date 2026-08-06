@@ -1,0 +1,396 @@
+-- S5-002 (iteration 2a/N): behavioral coverage for
+-- is_publication_eligible(), the docs/f5-distribution-measurement-
+-- contract.md Section 4.3 gate. Not yet wired into any trigger or route
+-- -- this file proves only the predicate itself.
+--
+-- Proves that:
+--   1. Least-privilege access: only service_role can execute the
+--      function.
+--   2. A content_version that is not approved is not eligible.
+--   3. A content_version marked approved with no approvals row at all
+--      (a data-integrity anomaly is_approval_currently_valid already
+--      fails closed on) is not eligible.
+--   4. A content_version with a full valid approval chain (approved
+--      status, current approval, matching master/checksum, usable
+--      rights, no open critical defect, unblocked content_item,
+--      non-paused campaign) IS eligible.
+--   5. The same valid chain with one open critical qa_defect attached is
+--      not eligible.
+--   6. The same valid chain under a content_item whose lifecycle state
+--      is 'blocked' is not eligible.
+--   7. The same valid chain under a campaign whose lifecycle state is
+--      'paused' is not eligible.
+--   8. A null content_version_id is not eligible.
+
+begin;
+
+create extension if not exists pgtap with schema extensions;
+
+select plan(12);
+
+select ok(
+    not has_function_privilege(
+        'anon', 'public.is_publication_eligible(uuid)', 'EXECUTE'
+    ),
+    'Anonymous cannot execute is_publication_eligible'
+);
+
+select ok(
+    not has_function_privilege(
+        'authenticated', 'public.is_publication_eligible(uuid)', 'EXECUTE'
+    ),
+    'Authenticated cannot execute is_publication_eligible yet'
+);
+
+select ok(
+    has_function_privilege(
+        'service_role', 'public.is_publication_eligible(uuid)', 'EXECUTE'
+    ),
+    'service_role can execute is_publication_eligible'
+);
+
+-- -------------------------------------------------------------------------
+-- Shared fixture: one profile, one role, one opportunity, two campaigns
+-- (active / paused) and three content_items (normal / blocked / under
+-- the paused campaign).
+-- -------------------------------------------------------------------------
+
+select lives_ok(
+    $shared_fixture$
+        insert into auth.users (id, instance_id, aud, role, email, created_at, updated_at)
+        values (
+            'e5022000-0000-4000-8000-000000000001'::uuid,
+            '00000000-0000-0000-0000-000000000000'::uuid,
+            'authenticated', 'authenticated',
+            's5-002-elig-owner@example.test', now(), now()
+        );
+
+        insert into public.profiles (id, auth_user_id, display_name, account_status)
+        values (
+            'e5022000-0000-4000-8000-000000000001'::uuid,
+            'e5022000-0000-4000-8000-000000000001'::uuid,
+            'S5-002 Eligibility Owner', 'active'
+        );
+
+        insert into public.roles (id, code)
+        values ('e5022000-0000-4000-8000-000000000002'::uuid, 'approver');
+
+        insert into public.opportunities (id, name, owner_profile_id)
+        values (
+            'e5022000-0000-4000-8000-000000000003'::uuid,
+            'S5-002 eligibility opportunity',
+            'e5022000-0000-4000-8000-000000000001'::uuid
+        );
+
+        insert into public.campaigns (id, name, opportunity_id, owner_profile_id)
+        values
+            (
+                'e5022000-0000-4000-8000-000000000004'::uuid,
+                'S5-002 eligibility campaign (active)',
+                'e5022000-0000-4000-8000-000000000003'::uuid,
+                'e5022000-0000-4000-8000-000000000001'::uuid
+            ),
+            (
+                'e5022000-0000-4000-8000-000000000005'::uuid,
+                'S5-002 eligibility campaign (paused)',
+                'e5022000-0000-4000-8000-000000000003'::uuid,
+                'e5022000-0000-4000-8000-000000000001'::uuid
+            );
+
+        insert into public.content_items (id, campaign_id, content_type, objective, priority, created_by)
+        values
+            (
+                'e5022000-0000-4000-8000-000000000006'::uuid,
+                'e5022000-0000-4000-8000-000000000004'::uuid,
+                'reel', 'normal item', 1,
+                'e5022000-0000-4000-8000-000000000001'::uuid
+            ),
+            (
+                'e5022000-0000-4000-8000-000000000007'::uuid,
+                'e5022000-0000-4000-8000-000000000004'::uuid,
+                'reel', 'blocked item', 1,
+                'e5022000-0000-4000-8000-000000000001'::uuid
+            ),
+            (
+                'e5022000-0000-4000-8000-000000000008'::uuid,
+                'e5022000-0000-4000-8000-000000000005'::uuid,
+                'reel', 'item under paused campaign', 1,
+                'e5022000-0000-4000-8000-000000000001'::uuid
+            );
+
+        insert into public.state_transition_subjects (object_type, object_id, machine_code, current_state)
+        values
+            ('campaign', 'e5022000-0000-4000-8000-000000000004'::uuid, 'campaign', 'active'),
+            ('campaign', 'e5022000-0000-4000-8000-000000000005'::uuid, 'campaign', 'paused'),
+            ('content_item', 'e5022000-0000-4000-8000-000000000006'::uuid, 'content_item', 'preproduction'),
+            ('content_item', 'e5022000-0000-4000-8000-000000000007'::uuid, 'content_item', 'blocked'),
+            ('content_item', 'e5022000-0000-4000-8000-000000000008'::uuid, 'content_item', 'preproduction');
+    $shared_fixture$,
+    'Shared profile/role/opportunity/campaigns/content_items/state_transition_subjects fixtures are created'
+);
+
+-- -------------------------------------------------------------------------
+-- Per-case content_versions and, where the case needs a full valid
+-- approval chain, its private_storage_object/asset/approval rows.
+-- -------------------------------------------------------------------------
+
+select lives_ok(
+    $case_rows$
+        -- Case A: draft, never approved.
+        insert into public.content_versions (id, content_item_id, script, caption, status, created_by)
+        values (
+            'e5022000-0000-4000-8000-000000000010'::uuid,
+            'e5022000-0000-4000-8000-000000000006'::uuid,
+            'A script', 'A caption', 'draft',
+            'e5022000-0000-4000-8000-000000000001'::uuid
+        );
+
+        -- Case B: status says approved, but no approvals row exists.
+        insert into public.content_versions (id, content_item_id, script, caption, status, created_by)
+        values (
+            'e5022000-0000-4000-8000-000000000011'::uuid,
+            'e5022000-0000-4000-8000-000000000006'::uuid,
+            'B script', 'B caption', 'approved',
+            'e5022000-0000-4000-8000-000000000001'::uuid
+        );
+
+        -- Case C: fully eligible chain.
+        insert into public.private_storage_objects (
+            id, bucket_id, object_key, original_name, safe_name, mime_type,
+            size_bytes, checksum_sha256, owner_profile_id, classification,
+            state, origin, rights_basis
+        )
+        values (
+            'e5022000-0000-4000-8000-000000000013'::uuid,
+            'masters-private', 'case-c-key', 'case-c.mp4', 'case-c.mp4',
+            'video/mp4', 1000, repeat('a1', 32),
+            'e5022000-0000-4000-8000-000000000001'::uuid, 'internal',
+            'approved', 'upload', 'owned'
+        );
+
+        insert into public.assets (id, private_storage_object_id, asset_type, rights_status, status, created_by)
+        values (
+            'e5022000-0000-4000-8000-000000000014'::uuid,
+            'e5022000-0000-4000-8000-000000000013'::uuid,
+            'master', 'cleared', 'approved',
+            'e5022000-0000-4000-8000-000000000001'::uuid
+        );
+
+        insert into public.content_versions (id, content_item_id, script, caption, master_asset_id, checksum, status, created_by)
+        values (
+            'e5022000-0000-4000-8000-000000000012'::uuid,
+            'e5022000-0000-4000-8000-000000000006'::uuid,
+            'C script', 'C caption',
+            'e5022000-0000-4000-8000-000000000014'::uuid, repeat('a1', 32),
+            'approved', 'e5022000-0000-4000-8000-000000000001'::uuid
+        );
+
+        insert into public.approvals (id, content_version_id, master_asset_id, checksum, approver_profile_id, approver_role_id, correlation_id, environment)
+        values (
+            'e5022000-0000-4000-8000-000000000015'::uuid,
+            'e5022000-0000-4000-8000-000000000012'::uuid,
+            'e5022000-0000-4000-8000-000000000014'::uuid, repeat('a1', 32),
+            'e5022000-0000-4000-8000-000000000001'::uuid,
+            'e5022000-0000-4000-8000-000000000002'::uuid,
+            gen_random_uuid(), 'test'
+        );
+
+        -- Case D: same valid chain, plus one open critical defect.
+        insert into public.private_storage_objects (
+            id, bucket_id, object_key, original_name, safe_name, mime_type,
+            size_bytes, checksum_sha256, owner_profile_id, classification,
+            state, origin, rights_basis
+        )
+        values (
+            'e5022000-0000-4000-8000-000000000017'::uuid,
+            'masters-private', 'case-d-key', 'case-d.mp4', 'case-d.mp4',
+            'video/mp4', 1000, repeat('b2', 32),
+            'e5022000-0000-4000-8000-000000000001'::uuid, 'internal',
+            'approved', 'upload', 'owned'
+        );
+
+        insert into public.assets (id, private_storage_object_id, asset_type, rights_status, status, created_by)
+        values (
+            'e5022000-0000-4000-8000-000000000018'::uuid,
+            'e5022000-0000-4000-8000-000000000017'::uuid,
+            'master', 'cleared', 'approved',
+            'e5022000-0000-4000-8000-000000000001'::uuid
+        );
+
+        insert into public.content_versions (id, content_item_id, script, caption, master_asset_id, checksum, status, created_by)
+        values (
+            'e5022000-0000-4000-8000-000000000016'::uuid,
+            'e5022000-0000-4000-8000-000000000006'::uuid,
+            'D script', 'D caption',
+            'e5022000-0000-4000-8000-000000000018'::uuid, repeat('b2', 32),
+            'approved', 'e5022000-0000-4000-8000-000000000001'::uuid
+        );
+
+        insert into public.approvals (id, content_version_id, master_asset_id, checksum, approver_profile_id, approver_role_id, correlation_id, environment)
+        values (
+            'e5022000-0000-4000-8000-000000000019'::uuid,
+            'e5022000-0000-4000-8000-000000000016'::uuid,
+            'e5022000-0000-4000-8000-000000000018'::uuid, repeat('b2', 32),
+            'e5022000-0000-4000-8000-000000000001'::uuid,
+            'e5022000-0000-4000-8000-000000000002'::uuid,
+            gen_random_uuid(), 'test'
+        );
+
+        insert into public.qa_checklists (id, content_type, version_number, name, created_by)
+        values (
+            'e5022000-0000-4000-8000-000000000020'::uuid,
+            'reel', 1, 'S5-002 eligibility checklist',
+            'e5022000-0000-4000-8000-000000000001'::uuid
+        );
+
+        insert into public.qa_reviews (id, content_version_id, qa_checklist_id, dimension, reviewer_profile_id, reviewer_role_id, decision, correlation_id, environment)
+        values (
+            'e5022000-0000-4000-8000-000000000021'::uuid,
+            'e5022000-0000-4000-8000-000000000016'::uuid,
+            'e5022000-0000-4000-8000-000000000020'::uuid,
+            'technical',
+            'e5022000-0000-4000-8000-000000000001'::uuid,
+            'e5022000-0000-4000-8000-000000000002'::uuid,
+            'approved', gen_random_uuid(), 'test'
+        );
+
+        insert into public.qa_defects (id, qa_review_id, severity, defect_type, title, description, status, assigned_to_profile_id, opened_by, opened_role_id, correlation_id, environment)
+        values (
+            'e5022000-0000-4000-8000-000000000022'::uuid,
+            'e5022000-0000-4000-8000-000000000021'::uuid,
+            'critical', 'factual_error', 'Case D open critical defect',
+            'Blocks eligibility per Section 4.3', 'open',
+            'e5022000-0000-4000-8000-000000000001'::uuid,
+            'e5022000-0000-4000-8000-000000000001'::uuid,
+            'e5022000-0000-4000-8000-000000000002'::uuid,
+            gen_random_uuid(), 'test'
+        );
+
+        -- Case E: same valid chain, under the blocked content_item.
+        insert into public.private_storage_objects (
+            id, bucket_id, object_key, original_name, safe_name, mime_type,
+            size_bytes, checksum_sha256, owner_profile_id, classification,
+            state, origin, rights_basis
+        )
+        values (
+            'e5022000-0000-4000-8000-000000000024'::uuid,
+            'masters-private', 'case-e-key', 'case-e.mp4', 'case-e.mp4',
+            'video/mp4', 1000, repeat('c3', 32),
+            'e5022000-0000-4000-8000-000000000001'::uuid, 'internal',
+            'approved', 'upload', 'owned'
+        );
+
+        insert into public.assets (id, private_storage_object_id, asset_type, rights_status, status, created_by)
+        values (
+            'e5022000-0000-4000-8000-000000000025'::uuid,
+            'e5022000-0000-4000-8000-000000000024'::uuid,
+            'master', 'cleared', 'approved',
+            'e5022000-0000-4000-8000-000000000001'::uuid
+        );
+
+        insert into public.content_versions (id, content_item_id, script, caption, master_asset_id, checksum, status, created_by)
+        values (
+            'e5022000-0000-4000-8000-000000000023'::uuid,
+            'e5022000-0000-4000-8000-000000000007'::uuid,
+            'E script', 'E caption',
+            'e5022000-0000-4000-8000-000000000025'::uuid, repeat('c3', 32),
+            'approved', 'e5022000-0000-4000-8000-000000000001'::uuid
+        );
+
+        insert into public.approvals (id, content_version_id, master_asset_id, checksum, approver_profile_id, approver_role_id, correlation_id, environment)
+        values (
+            'e5022000-0000-4000-8000-000000000026'::uuid,
+            'e5022000-0000-4000-8000-000000000023'::uuid,
+            'e5022000-0000-4000-8000-000000000025'::uuid, repeat('c3', 32),
+            'e5022000-0000-4000-8000-000000000001'::uuid,
+            'e5022000-0000-4000-8000-000000000002'::uuid,
+            gen_random_uuid(), 'test'
+        );
+
+        -- Case F: same valid chain, under the content_item that belongs
+        -- to the paused campaign.
+        insert into public.private_storage_objects (
+            id, bucket_id, object_key, original_name, safe_name, mime_type,
+            size_bytes, checksum_sha256, owner_profile_id, classification,
+            state, origin, rights_basis
+        )
+        values (
+            'e5022000-0000-4000-8000-000000000028'::uuid,
+            'masters-private', 'case-f-key', 'case-f.mp4', 'case-f.mp4',
+            'video/mp4', 1000, repeat('d4', 32),
+            'e5022000-0000-4000-8000-000000000001'::uuid, 'internal',
+            'approved', 'upload', 'owned'
+        );
+
+        insert into public.assets (id, private_storage_object_id, asset_type, rights_status, status, created_by)
+        values (
+            'e5022000-0000-4000-8000-000000000029'::uuid,
+            'e5022000-0000-4000-8000-000000000028'::uuid,
+            'master', 'cleared', 'approved',
+            'e5022000-0000-4000-8000-000000000001'::uuid
+        );
+
+        insert into public.content_versions (id, content_item_id, script, caption, master_asset_id, checksum, status, created_by)
+        values (
+            'e5022000-0000-4000-8000-000000000027'::uuid,
+            'e5022000-0000-4000-8000-000000000008'::uuid,
+            'F script', 'F caption',
+            'e5022000-0000-4000-8000-000000000029'::uuid, repeat('d4', 32),
+            'approved', 'e5022000-0000-4000-8000-000000000001'::uuid
+        );
+
+        insert into public.approvals (id, content_version_id, master_asset_id, checksum, approver_profile_id, approver_role_id, correlation_id, environment)
+        values (
+            'e5022000-0000-4000-8000-000000000030'::uuid,
+            'e5022000-0000-4000-8000-000000000027'::uuid,
+            'e5022000-0000-4000-8000-000000000029'::uuid, repeat('d4', 32),
+            'e5022000-0000-4000-8000-000000000001'::uuid,
+            'e5022000-0000-4000-8000-000000000002'::uuid,
+            gen_random_uuid(), 'test'
+        );
+    $case_rows$,
+    'Cases A-F content_versions and their supporting rows are created'
+);
+
+-- -------------------------------------------------------------------------
+-- Assertions
+-- -------------------------------------------------------------------------
+
+select ok(
+    not public.is_publication_eligible('e5022000-0000-4000-8000-000000000010'::uuid),
+    'Case A: a draft (never approved) content_version is not eligible'
+);
+
+select ok(
+    not public.is_publication_eligible('e5022000-0000-4000-8000-000000000011'::uuid),
+    'Case B: status = approved with no approvals row is not eligible (fails closed)'
+);
+
+select ok(
+    public.is_publication_eligible('e5022000-0000-4000-8000-000000000012'::uuid),
+    'Case C: a full valid approval chain with no defects and an unblocked content_item/campaign IS eligible'
+);
+
+select ok(
+    not public.is_publication_eligible('e5022000-0000-4000-8000-000000000016'::uuid),
+    'Case D: an otherwise valid chain with one open critical defect is not eligible'
+);
+
+select ok(
+    not public.is_publication_eligible('e5022000-0000-4000-8000-000000000023'::uuid),
+    'Case E: an otherwise valid chain under a blocked content_item is not eligible'
+);
+
+select ok(
+    not public.is_publication_eligible('e5022000-0000-4000-8000-000000000027'::uuid),
+    'Case F: an otherwise valid chain under a paused campaign is not eligible'
+);
+
+select ok(
+    not public.is_publication_eligible(null),
+    'A null content_version_id is not eligible'
+);
+
+select * from finish();
+
+rollback;
