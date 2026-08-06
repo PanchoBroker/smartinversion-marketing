@@ -10,6 +10,31 @@
 -- 4.3 eligibility gate, and any per-role RLS (S5-006). This file proves
 -- only the structural gate this iteration actually builds.
 --
+-- Updated by iteration 2b (20260823000000_publications_ready_scheduled_
+-- eligibility_wiring_s5_002.sql): the shared content_version this file's
+-- upstream_fixture builds is used by the single "ready -> scheduled is
+-- permitted" assertion below. Iteration 2b wires is_publication_
+-- eligible() into that exact edge, and this fixture originally reached
+-- status = 'approved' via a direct insert with no real approvals row --
+-- exactly the "status says approved, no approvals row" anomaly
+-- is_approval_currently_valid() (S4-006) already fails closed on (see
+-- Case B of publications_eligibility_gate_s5_002.test.sql). Confirmed by
+-- local pgTAP evidence: applying the iteration 2b migration against this
+-- unmodified fixture broke the existing "ready -> scheduled is
+-- permitted" assertion (PUBLICATION_NOT_ELIGIBLE_FOR_SCHEDULING). Same
+-- pattern already recorded in Registro de Patrones ("Foundation, not yet
+-- connected -> RLS por rol en sprint posterior": a structural test
+-- written before a gate existed becomes obsolete BY DESIGN once that
+-- gate is wired -- the correct fix is to update the now-obsolete
+-- fixture, never to weaken the new gate). The fixture below now routes
+-- the shared content_version through the real qa_pending ->
+-- approval_pending -> approved path (scenes/acceptance criteria, an
+-- 8-dimension qa_checklist, qa_reviews + qa_review_item_results,
+-- promote_content_version_to_approval_pending(),
+-- approve_content_version()), mirroring publications_eligibility_gate_
+-- s5_002.test.sql's own Case C fixture, so it is genuinely eligible
+-- rather than only shaped like an approved row.
+--
 -- Proves that:
 --   1. `publications` exists with RLS enabled and is reachable only by
 --      service_role (Foundation, not yet connected).
@@ -123,14 +148,201 @@ select lives_ok(
             'e5020000-0000-4000-8000-000000000001'::uuid
         );
 
+        -- Iteration 2b: is_publication_eligible() also requires the
+        -- owning content_item/campaign to have a state_transition_
+        -- subjects row that is not 'blocked'/'paused' (Section 4.3's "no
+        -- parent campaign or controlling dependency is blocked") -- a
+        -- null current_state (no row at all, this fixture's original
+        -- gap) fails closed exactly like an explicit 'blocked'/'paused'
+        -- would. Unblocked content_items use 'backlog', the one state
+        -- with no production-pipeline gate, mirroring publications_
+        -- eligibility_gate_s5_002.test.sql's own shared fixture.
+        insert into public.state_transition_subjects (object_type, object_id, machine_code, current_state)
+        values
+            ('campaign', 'e5020000-0000-4000-8000-000000000003'::uuid, 'campaign', 'active'),
+            ('content_item', 'e5020000-0000-4000-8000-000000000004'::uuid, 'content_item', 'backlog');
+
+        -- Iteration 2b: a second "Role Admin" profile purely to grant the
+        -- 'approver' role to the owner profile (role_assignments_no_self_
+        -- assignment forbids assigned_by = profile_id), mirroring
+        -- publications_eligibility_gate_s5_002.test.sql's own shared
+        -- fixture exactly.
+        insert into auth.users (
+            id, instance_id, aud, role, email, created_at, updated_at
+        )
+        values (
+            'e5020000-0000-4000-8000-000000000501'::uuid,
+            '00000000-0000-0000-0000-000000000000'::uuid,
+            'authenticated', 'authenticated',
+            's5-002-lifecycle-role-admin@example.test', now(), now()
+        );
+
+        insert into public.profiles (
+            id, auth_user_id, display_name, account_status
+        )
+        values (
+            'e5020000-0000-4000-8000-000000000501'::uuid,
+            'e5020000-0000-4000-8000-000000000501'::uuid,
+            'S5-002 Lifecycle Role Admin', 'active'
+        );
+
+        insert into public.role_assignments (profile_id, role_id, valid_from, assigned_by, reason)
+        values (
+            'e5020000-0000-4000-8000-000000000001'::uuid,
+            (select id from public.roles where code = 'approver'),
+            now() - interval '1 minute',
+            'e5020000-0000-4000-8000-000000000501'::uuid,
+            's5-002 lifecycle fixture: approver acting profile for the shared content_version'
+        );
+
+        -- Iteration 2b: a real private master asset (storage.objects +
+        -- private_storage_objects + assets), the same shape
+        -- publications_eligibility_gate_s5_002.test.sql's Case C already
+        -- proved works against is_approval_currently_valid().
+        insert into storage.objects (id, bucket_id, name)
+        values (
+            'e5020000-0000-4000-8000-000000000502'::uuid,
+            'masters-private',
+            'e5020000-0000-4000-8000-000000000503/1'
+        );
+
+        insert into public.private_storage_objects (
+            id, bucket_id, object_key, storage_object_id, original_name,
+            safe_name, mime_type, size_bytes, checksum_sha256,
+            owner_profile_id, classification, state, origin, rights_basis
+        )
+        values (
+            'e5020000-0000-4000-8000-000000000503'::uuid,
+            'masters-private', 'e5020000-0000-4000-8000-000000000503/1',
+            'e5020000-0000-4000-8000-000000000502'::uuid,
+            'lifecycle-master.mp4', 'lifecycle-master.mp4',
+            'video/mp4', 1000, repeat('e5', 32),
+            'e5020000-0000-4000-8000-000000000001'::uuid, 'internal',
+            'available', 'upload', 'owned'
+        );
+
+        insert into public.assets (id, private_storage_object_id, asset_type, rights_status, status, created_by)
+        values (
+            'e5020000-0000-4000-8000-000000000504'::uuid,
+            'e5020000-0000-4000-8000-000000000503'::uuid,
+            'master', 'cleared', 'approved',
+            'e5020000-0000-4000-8000-000000000001'::uuid
+        );
+
+        -- Starts 'qa_pending', not 'approved' directly (iteration 2b):
+        -- nothing transitions status on a raw insert, only
+        -- approve_content_version() does that, and only from
+        -- approval_pending -- same lesson already recorded in Registro
+        -- de Patrones ("un content_version solo llega a approved pasando
+        -- por qa_pending -> approval_pending -> approved").
         insert into public.content_versions (
-            id, content_item_id, version_number, script, caption, status, created_by
+            id, content_item_id, version_number, script, caption,
+            master_asset_id, checksum, status, created_by
         )
         values (
             'e5020000-0000-4000-8000-000000000005'::uuid,
             'e5020000-0000-4000-8000-000000000004'::uuid,
-            1, 'S5-002 script', 'S5-002 caption', 'approved',
+            1, 'S5-002 script', 'S5-002 caption',
+            'e5020000-0000-4000-8000-000000000504'::uuid, repeat('e5', 32),
+            'qa_pending', 'e5020000-0000-4000-8000-000000000001'::uuid
+        );
+
+        -- Iteration 2b: the real qa_pending -> approval_pending ->
+        -- approved chain (8-dimension qa_checklist, >=1 scene with >=1
+        -- acceptance criterion, 8 qa_reviews all decision='approved',
+        -- qa_review_item_results, promote then approve), mirroring
+        -- publications_eligibility_gate_s5_002.test.sql's Case C fixture
+        -- verbatim.
+        insert into public.qa_checklists (id, content_type, version_number, name, created_by)
+        values (
+            'e5020000-0000-4000-8000-000000000505'::uuid,
+            'reel', 1, 'S5-002 lifecycle checklist',
             'e5020000-0000-4000-8000-000000000001'::uuid
+        );
+
+        insert into public.qa_checklist_items (qa_checklist_id, item_code, dimension, item_order, requirement_text, is_required, created_by)
+        select
+            'e5020000-0000-4000-8000-000000000505'::uuid,
+            'lifecycle_' || dim, dim, 1,
+            'S5-002 lifecycle ' || dim || ' requirement',
+            true,
+            'e5020000-0000-4000-8000-000000000001'::uuid
+        from unnest(array[
+            'strategic', 'factual', 'financial', 'visual',
+            'rights', 'brand', 'technical', 'conversion'
+        ]::text[]) as dim;
+
+        select public.activate_qa_checklist(
+            'e5020000-0000-4000-8000-000000000505'::uuid,
+            'e5020000-0000-4000-8000-000000000001'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'Activate S5-002 lifecycle checklist', 'test'
+        );
+
+        insert into public.scenes (
+            id, content_item_id, content_version_id, scene_number,
+            narrative_objective, target_duration_seconds,
+            subject_specification, action_specification,
+            environment_specification, camera_specification,
+            lighting_specification, continuity_specification, created_by
+        )
+        values (
+            'e5020000-0000-4000-8000-000000000506'::uuid,
+            'e5020000-0000-4000-8000-000000000004'::uuid,
+            'e5020000-0000-4000-8000-000000000005'::uuid,
+            1, 'S5-002 lifecycle scene', 5,
+            'Subject', 'Action', 'Environment', 'Camera',
+            'Lighting', 'Continuity',
+            'e5020000-0000-4000-8000-000000000001'::uuid
+        );
+
+        insert into public.scene_acceptance_criteria (id, scene_id, criterion_number, criterion_type, criterion_text, created_by)
+        values (
+            'e5020000-0000-4000-8000-000000000507'::uuid,
+            'e5020000-0000-4000-8000-000000000506'::uuid,
+            1, 'required', 'S5-002 lifecycle criterion',
+            'e5020000-0000-4000-8000-000000000001'::uuid
+        );
+
+        insert into public.qa_reviews (id, content_version_id, qa_checklist_id, dimension, reviewer_profile_id, reviewer_role_id, correlation_id, environment)
+        select
+            gen_random_uuid(), 'e5020000-0000-4000-8000-000000000005'::uuid,
+            'e5020000-0000-4000-8000-000000000505'::uuid, dim,
+            'e5020000-0000-4000-8000-000000000001'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        from unnest(array[
+            'strategic', 'factual', 'financial', 'visual',
+            'rights', 'brand', 'technical', 'conversion'
+        ]::text[]) as dim;
+
+        insert into public.qa_review_item_results (qa_review_id, qa_checklist_item_id, result, evaluator_profile_id, evaluator_role_id)
+        select
+            review.id, item.id, 'passed',
+            'e5020000-0000-4000-8000-000000000001'::uuid,
+            (select id from public.roles where code = 'approver')
+        from public.qa_reviews as review
+        join public.qa_checklist_items as item
+          on item.qa_checklist_id = review.qa_checklist_id
+         and item.dimension = review.dimension
+        where review.content_version_id = 'e5020000-0000-4000-8000-000000000005'::uuid;
+
+        update public.qa_reviews
+        set decision = 'approved'
+        where content_version_id = 'e5020000-0000-4000-8000-000000000005'::uuid;
+
+        select public.promote_content_version_to_approval_pending(
+            'e5020000-0000-4000-8000-000000000005'::uuid,
+            'e5020000-0000-4000-8000-000000000001'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'S5-002 lifecycle fixture promote', 'test'
+        );
+
+        select public.approve_content_version(
+            'e5020000-0000-4000-8000-000000000005'::uuid,
+            'e5020000-0000-4000-8000-000000000001'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'S5-002 lifecycle fixture approve', 'Approved for lifecycle fixture', 'test'
         );
     $upstream_fixture$,
     'Owner profile, opportunity, campaign, content_item and content_version fixtures are created'
