@@ -166,17 +166,40 @@ select lives_ok(
         );
 
         -- Case C: fully eligible chain.
+        -- private_storage_objects (4th real CI failure): state='approved'
+        -- was never needed here (assets carries its own 'approved' status
+        -- for the eligibility chain, checked via is_approval_currently_
+        -- valid()) and it tripped private_storage_objects_approved_state_
+        -- complete (requires approved_at/approved_by) plus, per the same
+        -- CHECK definitions read directly from
+        -- 20260722044116_private_storage_authorization_s1_005.sql,
+        -- private_storage_objects_key_is_opaque (object_key must equal
+        -- id::text || '/' || version_number::text) and
+        -- private_storage_objects_storage_link_complete (state <>
+        -- 'registered' requires a real storage_object_id). Fixed by
+        -- following the exact pattern already used by
+        -- assets_rights_checksums_private_storage_s4_004.test.sql: a real
+        -- storage.objects row, state='available', object_key = '<id>/1'.
+        insert into storage.objects (id, bucket_id, name)
+        values (
+            'e5022000-0000-4000-8000-000000000031'::uuid,
+            'masters-private',
+            'e5022000-0000-4000-8000-000000000013/1'
+        );
+
         insert into public.private_storage_objects (
-            id, bucket_id, object_key, original_name, safe_name, mime_type,
-            size_bytes, checksum_sha256, owner_profile_id, classification,
-            state, origin, rights_basis
+            id, bucket_id, object_key, storage_object_id, original_name,
+            safe_name, mime_type, size_bytes, checksum_sha256,
+            owner_profile_id, classification, state, origin, rights_basis
         )
         values (
             'e5022000-0000-4000-8000-000000000013'::uuid,
-            'masters-private', 'case-c-key', 'case-c.mp4', 'case-c.mp4',
+            'masters-private', 'e5022000-0000-4000-8000-000000000013/1',
+            'e5022000-0000-4000-8000-000000000031'::uuid,
+            'case-c.mp4', 'case-c.mp4',
             'video/mp4', 1000, repeat('a1', 32),
             'e5022000-0000-4000-8000-000000000001'::uuid, 'internal',
-            'approved', 'upload', 'owned'
+            'available', 'upload', 'owned'
         );
 
         insert into public.assets (id, private_storage_object_id, asset_type, rights_status, status, created_by)
@@ -207,17 +230,26 @@ select lives_ok(
         );
 
         -- Case D: same valid chain, plus one open critical defect.
+        insert into storage.objects (id, bucket_id, name)
+        values (
+            'e5022000-0000-4000-8000-000000000032'::uuid,
+            'masters-private',
+            'e5022000-0000-4000-8000-000000000017/1'
+        );
+
         insert into public.private_storage_objects (
-            id, bucket_id, object_key, original_name, safe_name, mime_type,
-            size_bytes, checksum_sha256, owner_profile_id, classification,
-            state, origin, rights_basis
+            id, bucket_id, object_key, storage_object_id, original_name,
+            safe_name, mime_type, size_bytes, checksum_sha256,
+            owner_profile_id, classification, state, origin, rights_basis
         )
         values (
             'e5022000-0000-4000-8000-000000000017'::uuid,
-            'masters-private', 'case-d-key', 'case-d.mp4', 'case-d.mp4',
+            'masters-private', 'e5022000-0000-4000-8000-000000000017/1',
+            'e5022000-0000-4000-8000-000000000032'::uuid,
+            'case-d.mp4', 'case-d.mp4',
             'video/mp4', 1000, repeat('b2', 32),
             'e5022000-0000-4000-8000-000000000001'::uuid, 'internal',
-            'approved', 'upload', 'owned'
+            'available', 'upload', 'owned'
         );
 
         insert into public.assets (id, private_storage_object_id, asset_type, rights_status, status, created_by)
@@ -278,17 +310,26 @@ select lives_ok(
         );
 
         -- Case E: same valid chain, under the blocked content_item.
+        insert into storage.objects (id, bucket_id, name)
+        values (
+            'e5022000-0000-4000-8000-000000000033'::uuid,
+            'masters-private',
+            'e5022000-0000-4000-8000-000000000024/1'
+        );
+
         insert into public.private_storage_objects (
-            id, bucket_id, object_key, original_name, safe_name, mime_type,
-            size_bytes, checksum_sha256, owner_profile_id, classification,
-            state, origin, rights_basis
+            id, bucket_id, object_key, storage_object_id, original_name,
+            safe_name, mime_type, size_bytes, checksum_sha256,
+            owner_profile_id, classification, state, origin, rights_basis
         )
         values (
             'e5022000-0000-4000-8000-000000000024'::uuid,
-            'masters-private', 'case-e-key', 'case-e.mp4', 'case-e.mp4',
+            'masters-private', 'e5022000-0000-4000-8000-000000000024/1',
+            'e5022000-0000-4000-8000-000000000033'::uuid,
+            'case-e.mp4', 'case-e.mp4',
             'video/mp4', 1000, repeat('c3', 32),
             'e5022000-0000-4000-8000-000000000001'::uuid, 'internal',
-            'approved', 'upload', 'owned'
+            'available', 'upload', 'owned'
         );
 
         insert into public.assets (id, private_storage_object_id, asset_type, rights_status, status, created_by)
@@ -320,17 +361,26 @@ select lives_ok(
 
         -- Case F: same valid chain, under the content_item that belongs
         -- to the paused campaign.
+        insert into storage.objects (id, bucket_id, name)
+        values (
+            'e5022000-0000-4000-8000-000000000034'::uuid,
+            'masters-private',
+            'e5022000-0000-4000-8000-000000000028/1'
+        );
+
         insert into public.private_storage_objects (
-            id, bucket_id, object_key, original_name, safe_name, mime_type,
-            size_bytes, checksum_sha256, owner_profile_id, classification,
-            state, origin, rights_basis
+            id, bucket_id, object_key, storage_object_id, original_name,
+            safe_name, mime_type, size_bytes, checksum_sha256,
+            owner_profile_id, classification, state, origin, rights_basis
         )
         values (
             'e5022000-0000-4000-8000-000000000028'::uuid,
-            'masters-private', 'case-f-key', 'case-f.mp4', 'case-f.mp4',
+            'masters-private', 'e5022000-0000-4000-8000-000000000028/1',
+            'e5022000-0000-4000-8000-000000000034'::uuid,
+            'case-f.mp4', 'case-f.mp4',
             'video/mp4', 1000, repeat('d4', 32),
             'e5022000-0000-4000-8000-000000000001'::uuid, 'internal',
-            'approved', 'upload', 'owned'
+            'available', 'upload', 'owned'
         );
 
         insert into public.assets (id, private_storage_object_id, asset_type, rights_status, status, created_by)
