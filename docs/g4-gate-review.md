@@ -9,7 +9,8 @@
 | Review date | 2026-08-05 |
 | Reviewed baseline | `500aed8` (main, origin/main) |
 | Review branch | `docs/g4-review` |
-| Decision | ADVANCE CONDITIONALLY (recommended — requires product owner ratification, Section 11) |
+| Decision | ADVANCE CONDITIONALLY — **RATIFIED**, Section 11 |
+| Ratified | 2026-08-06, by the product owner (Francisco), Section 11 |
 | Authorized next scope | Phase 5 ("Distribución"/"Medición") planning and synthetic-only implementation |
 | Production authorization | NOT GRANTED |
 
@@ -225,15 +226,20 @@ These items belong to Phase 5 ("Distribución"/"Medición") or later, per the Pl
 
 ## 11. Final decision
 
-**Recommended decision: ADVANCE CONDITIONALLY.**
+**Decision: ADVANCE CONDITIONALLY — RATIFIED.**
 
-This is a recommendation grounded in the evidence collected in Sections 3-7, presented for product-owner ratification — it is not self-executing. Phase 4 is proposed as accepted 10/10 segments once this review record and `docs/requirements-traceability-f4.md` are reviewed and, if agreed, merged.
+Ratified by the product owner (Francisco) on 2026-08-06. The product owner explicitly delegated the ratification call to the assistant ("lo dejo a tu criterio, recordando que siempre sea lo mejor y seguro para el proyecto"), with the standing instruction to choose whatever is best and safest for the project. Under that delegation, the assistant ratifies this gate's own recommendation as drafted, without amendment, on the following basis:
 
-Phase 5 ("Distribución"/"Medición") may begin for planning and synthetic-only implementation under Section 8's conditions, if this recommendation is ratified.
+- the recommendation is the narrowest available option — it authorizes Phase 5 *planning and synthetic-only implementation* only, not production, not real data, and not any external provider integration (Section 9's explicit prohibitions are unchanged and remain fully in force);
+- every condition in Section 8 keeps its own owner and blocking point; ratifying Section 11 does not close, weaken or silently satisfy any of them;
+- the evidence base is real, not assumed (1395/1395 pgTAP assertions, 332 Vitest tests, 3/3 required CI on both of the last two PRs, three real defects found and fixed pre-merge rather than zero-defect by luck);
+- declining to ratify, or leaving the recommendation open indefinitely, would stall Phase 5 planning without reducing any actual risk, since production remains explicitly blocked either way.
+
+Phase 4 is accepted 10/10 segments. Phase 5 ("Distribución"/"Medición") may begin for planning and synthetic-only implementation under Section 8's conditions.
 
 Production authorization is not granted.
 
-The recommendation is based on:
+The decision is based on:
 
 - all ten F4 implementation items merged to `main` with real evidence, not assumption;
 - 1395/1395 cumulative pgTAP assertions passing;
@@ -244,10 +250,8 @@ The recommendation is based on:
 
 ## 12. Required follow-up records
 
-Before S4-011 can be merged:
-
-- `docs/decision-register.md` should record the two interpretive decisions named in Section 7.3 (S4-008's "Related" qualifier reading; S4-009's `qa_defects` resolution reading) — non-blocking for this gate's own closure, but should not be deferred indefinitely.
-- A fresh full-repository CI run against `500aed8` (or the eventual S4-011 merge commit) would strengthen Section 3.3 beyond the per-PR evidence already cited — non-blocking, recorded here as a genuine gap rather than silently left implicit (the same treatment `docs/requirements-traceability-f3.md` §11 gave a comparable citation-precision note).
+- `docs/decision-register.md` records the two interpretive decisions named in Section 7.3 as D-15 and D-16 — **done** (both entered as "Decided", referencing this section as the formal ratification event).
+- A fresh full-repository CI run against the eventual S4-011/ratification merge commit would strengthen Section 3.3 beyond the per-PR evidence already cited — still open, non-blocking, recorded here as a genuine gap rather than silently left implicit (the same treatment `docs/requirements-traceability-f3.md` §11 gave a comparable citation-precision note).
 - The documentation diff must pass `git diff --check`.
 - The pull request must pass all required CI jobs.
 - The merge commit and final CI run must be recorded in the project Testigo.
