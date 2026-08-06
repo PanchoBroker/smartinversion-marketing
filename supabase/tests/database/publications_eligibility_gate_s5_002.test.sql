@@ -72,9 +72,6 @@ select lives_ok(
             'S5-002 Eligibility Owner', 'active'
         );
 
-        insert into public.roles (id, code)
-        values ('e5022000-0000-4000-8000-000000000002'::uuid, 'approver');
-
         insert into public.opportunities (id, name, owner_profile_id)
         values (
             'e5022000-0000-4000-8000-000000000003'::uuid,
@@ -191,7 +188,7 @@ select lives_ok(
             'e5022000-0000-4000-8000-000000000012'::uuid,
             'e5022000-0000-4000-8000-000000000014'::uuid, repeat('a1', 32),
             'e5022000-0000-4000-8000-000000000001'::uuid,
-            'e5022000-0000-4000-8000-000000000002'::uuid,
+            (select id from public.roles where code = 'approver'),
             gen_random_uuid(), 'test'
         );
 
@@ -232,7 +229,7 @@ select lives_ok(
             'e5022000-0000-4000-8000-000000000016'::uuid,
             'e5022000-0000-4000-8000-000000000018'::uuid, repeat('b2', 32),
             'e5022000-0000-4000-8000-000000000001'::uuid,
-            'e5022000-0000-4000-8000-000000000002'::uuid,
+            (select id from public.roles where code = 'approver'),
             gen_random_uuid(), 'test'
         );
 
@@ -250,7 +247,7 @@ select lives_ok(
             'e5022000-0000-4000-8000-000000000020'::uuid,
             'technical',
             'e5022000-0000-4000-8000-000000000001'::uuid,
-            'e5022000-0000-4000-8000-000000000002'::uuid,
+            (select id from public.roles where code = 'approver'),
             'approved', gen_random_uuid(), 'test'
         );
 
@@ -262,7 +259,7 @@ select lives_ok(
             'Blocks eligibility per Section 4.3', 'open',
             'e5022000-0000-4000-8000-000000000001'::uuid,
             'e5022000-0000-4000-8000-000000000001'::uuid,
-            'e5022000-0000-4000-8000-000000000002'::uuid,
+            (select id from public.roles where code = 'approver'),
             gen_random_uuid(), 'test'
         );
 
@@ -303,7 +300,7 @@ select lives_ok(
             'e5022000-0000-4000-8000-000000000023'::uuid,
             'e5022000-0000-4000-8000-000000000025'::uuid, repeat('c3', 32),
             'e5022000-0000-4000-8000-000000000001'::uuid,
-            'e5022000-0000-4000-8000-000000000002'::uuid,
+            (select id from public.roles where code = 'approver'),
             gen_random_uuid(), 'test'
         );
 
@@ -345,7 +342,7 @@ select lives_ok(
             'e5022000-0000-4000-8000-000000000027'::uuid,
             'e5022000-0000-4000-8000-000000000029'::uuid, repeat('d4', 32),
             'e5022000-0000-4000-8000-000000000001'::uuid,
-            'e5022000-0000-4000-8000-000000000002'::uuid,
+            (select id from public.roles where code = 'approver'),
             gen_random_uuid(), 'test'
         );
     $case_rows$,
