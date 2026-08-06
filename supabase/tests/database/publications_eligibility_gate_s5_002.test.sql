@@ -72,6 +72,47 @@ select lives_ok(
             'S5-002 Eligibility Owner', 'active'
         );
 
+        -- 5th real CI failure (job 92524766170): the profile above is used
+        -- as approver_profile_id (Cases C/D/E/F approvals), reviewer_
+        -- profile_id (Case D qa_reviews) and opened_by (Case D qa_defects),
+        -- always paired with the 'approver' role_id. s4_006_validate_
+        -- approval_entry / s4_005_validate_review_entry / s4_005_validate_
+        -- defect all gate on s4_005_has_active_human_role(profile, role),
+        -- which joins public.role_assignments -- not on any column of
+        -- public.roles itself (role.code/is_machine only prove the role
+        -- exists and is human, s4_005_role_is_approver never checks an
+        -- "active" flag on roles). Without a role_assignments row here,
+        -- every one of those inserts raises 42501
+        -- S4_006_ACTIVE_APPROVER_ROLE_REQUIRED / S4_005_ACTIVE_APPROVER_
+        -- ROLE_REQUIRED and the whole $case_rows$ block aborts at Case C's
+        -- approvals insert. role_assignments_no_self_assignment forbids
+        -- assigned_by = profile_id, so a second profile is required purely
+        -- to grant the role (same pattern as the "Role Admin" fixture
+        -- profile in qa-checklist-activate-authorization tests, S4-009).
+        insert into auth.users (id, instance_id, aud, role, email, created_at, updated_at)
+        values (
+            'e5022000-0000-4000-8000-000000000002'::uuid,
+            '00000000-0000-0000-0000-000000000000'::uuid,
+            'authenticated', 'authenticated',
+            's5-002-elig-role-admin@example.test', now(), now()
+        );
+
+        insert into public.profiles (id, auth_user_id, display_name, account_status)
+        values (
+            'e5022000-0000-4000-8000-000000000002'::uuid,
+            'e5022000-0000-4000-8000-000000000002'::uuid,
+            'S5-002 Eligibility Role Admin', 'active'
+        );
+
+        insert into public.role_assignments (profile_id, role_id, valid_from, assigned_by, reason)
+        values (
+            'e5022000-0000-4000-8000-000000000001'::uuid,
+            (select id from public.roles where code = 'approver'),
+            now() - interval '1 minute',
+            'e5022000-0000-4000-8000-000000000002'::uuid,
+            's5-002 eligibility fixture: approver acting profile for Cases C-F'
+        );
+
         insert into public.opportunities (id, name, owner_profile_id)
         values (
             'e5022000-0000-4000-8000-000000000003'::uuid,
