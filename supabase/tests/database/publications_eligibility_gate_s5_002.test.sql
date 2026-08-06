@@ -257,17 +257,19 @@ select lives_ok(
             'e5022000-0000-4000-8000-000000000006'::uuid, 3,
             'C script', 'C caption',
             'e5022000-0000-4000-8000-000000000014'::uuid, repeat('a1', 32),
-            'approved', 'e5022000-0000-4000-8000-000000000001'::uuid
-        );
-
-        insert into public.approvals (id, content_version_id, master_asset_id, checksum, approver_profile_id, approver_role_id, correlation_id, environment)
-        values (
-            'e5022000-0000-4000-8000-000000000015'::uuid,
-            'e5022000-0000-4000-8000-000000000012'::uuid,
-            'e5022000-0000-4000-8000-000000000014'::uuid, repeat('a1', 32),
-            'e5022000-0000-4000-8000-000000000001'::uuid,
-            (select id from public.roles where code = 'approver'),
-            gen_random_uuid(), 'test'
+            -- 6th real CI failure (commit e3b1d9e): died 23514
+            -- CONTENT_VERSION_NOT_APPROVABLE_WRONG_STATUS --
+            -- s4_006_validate_approval_entry requires status =
+            -- 'approval_pending' at the moment approvals is inserted, not
+            -- 'approved' directly (nothing transitions status on a raw
+            -- INSERT into approvals -- only approve_content_version()
+            -- does that, and only from approval_pending). Starts
+            -- 'qa_pending' here, like final_approvals_invalidation_qa_
+            -- queue_export_s4_006.test.sql's own fixture; the shared block
+            -- after Case F below drives all four of C/D/E/F through the
+            -- real QA -> approval_pending -> approved path instead of a
+            -- direct insert into public.approvals.
+            'qa_pending', 'e5022000-0000-4000-8000-000000000001'::uuid
         );
 
         -- Case D: same valid chain, plus one open critical defect.
@@ -307,47 +309,7 @@ select lives_ok(
             'e5022000-0000-4000-8000-000000000006'::uuid, 4,
             'D script', 'D caption',
             'e5022000-0000-4000-8000-000000000018'::uuid, repeat('b2', 32),
-            'approved', 'e5022000-0000-4000-8000-000000000001'::uuid
-        );
-
-        insert into public.approvals (id, content_version_id, master_asset_id, checksum, approver_profile_id, approver_role_id, correlation_id, environment)
-        values (
-            'e5022000-0000-4000-8000-000000000019'::uuid,
-            'e5022000-0000-4000-8000-000000000016'::uuid,
-            'e5022000-0000-4000-8000-000000000018'::uuid, repeat('b2', 32),
-            'e5022000-0000-4000-8000-000000000001'::uuid,
-            (select id from public.roles where code = 'approver'),
-            gen_random_uuid(), 'test'
-        );
-
-        insert into public.qa_checklists (id, content_type, version_number, name, created_by)
-        values (
-            'e5022000-0000-4000-8000-000000000020'::uuid,
-            'reel', 1, 'S5-002 eligibility checklist',
-            'e5022000-0000-4000-8000-000000000001'::uuid
-        );
-
-        insert into public.qa_reviews (id, content_version_id, qa_checklist_id, dimension, reviewer_profile_id, reviewer_role_id, decision, correlation_id, environment)
-        values (
-            'e5022000-0000-4000-8000-000000000021'::uuid,
-            'e5022000-0000-4000-8000-000000000016'::uuid,
-            'e5022000-0000-4000-8000-000000000020'::uuid,
-            'technical',
-            'e5022000-0000-4000-8000-000000000001'::uuid,
-            (select id from public.roles where code = 'approver'),
-            'approved', gen_random_uuid(), 'test'
-        );
-
-        insert into public.qa_defects (id, qa_review_id, severity, defect_type, title, description, status, assigned_to_profile_id, opened_by, opened_role_id, correlation_id, environment)
-        values (
-            'e5022000-0000-4000-8000-000000000022'::uuid,
-            'e5022000-0000-4000-8000-000000000021'::uuid,
-            'critical', 'factual_error', 'Case D open critical defect',
-            'Blocks eligibility per Section 4.3', 'open',
-            'e5022000-0000-4000-8000-000000000001'::uuid,
-            'e5022000-0000-4000-8000-000000000001'::uuid,
-            (select id from public.roles where code = 'approver'),
-            gen_random_uuid(), 'test'
+            'qa_pending', 'e5022000-0000-4000-8000-000000000001'::uuid
         );
 
         -- Case E: same valid chain, under the blocked content_item.
@@ -387,17 +349,7 @@ select lives_ok(
             'e5022000-0000-4000-8000-000000000007'::uuid,
             'E script', 'E caption',
             'e5022000-0000-4000-8000-000000000025'::uuid, repeat('c3', 32),
-            'approved', 'e5022000-0000-4000-8000-000000000001'::uuid
-        );
-
-        insert into public.approvals (id, content_version_id, master_asset_id, checksum, approver_profile_id, approver_role_id, correlation_id, environment)
-        values (
-            'e5022000-0000-4000-8000-000000000026'::uuid,
-            'e5022000-0000-4000-8000-000000000023'::uuid,
-            'e5022000-0000-4000-8000-000000000025'::uuid, repeat('c3', 32),
-            'e5022000-0000-4000-8000-000000000001'::uuid,
-            (select id from public.roles where code = 'approver'),
-            gen_random_uuid(), 'test'
+            'qa_pending', 'e5022000-0000-4000-8000-000000000001'::uuid
         );
 
         -- Case F: same valid chain, under the content_item that belongs
@@ -438,14 +390,212 @@ select lives_ok(
             'e5022000-0000-4000-8000-000000000008'::uuid,
             'F script', 'F caption',
             'e5022000-0000-4000-8000-000000000029'::uuid, repeat('d4', 32),
-            'approved', 'e5022000-0000-4000-8000-000000000001'::uuid
+            'qa_pending', 'e5022000-0000-4000-8000-000000000001'::uuid
         );
 
-        insert into public.approvals (id, content_version_id, master_asset_id, checksum, approver_profile_id, approver_role_id, correlation_id, environment)
+        -- Shared QA-complete -> approval_pending -> approved chain for
+        -- Cases C/D/E/F, replacing the four direct inserts into
+        -- public.approvals removed above. Read verbatim against
+        -- final_approvals_invalidation_qa_queue_export_s4_006.test.sql
+        -- (S4-006's own fixture, the only place this full chain was
+        -- already proven to work): each content_version needs >=1 scene
+        -- with >=1 scene_acceptance_criteria before any qa_reviews insert
+        -- (s4_005_validate_review_entry: S4_005_CONTENT_VERSION_HAS_NO_
+        -- SCENES / S4_005_SCENE_ACCEPTANCE_CRITERIA_INCOMPLETE), then a
+        -- full 8-dimension qa_reviews chain against one active
+        -- qa_checklist, all decision='approved', satisfying
+        -- is_content_version_qa_complete() (8 distinct dimensions, 1
+        -- checklist, all approved) -- the actual gate both
+        -- promote_content_version_to_approval_pending() and
+        -- approve_content_version() enforce. approve_content_version()
+        -- inserts the approvals row itself and flips status to
+        -- 'approved', so it replaces the raw inserts into public.
+        -- approvals entirely rather than needing them afterward.
+        insert into public.qa_checklists (id, content_type, version_number, name, created_by)
         values (
-            'e5022000-0000-4000-8000-000000000030'::uuid,
+            'e5022000-0000-4000-8000-000000000020'::uuid,
+            'reel', 1, 'S5-002 eligibility checklist',
+            'e5022000-0000-4000-8000-000000000001'::uuid
+        );
+
+        insert into public.qa_checklist_items (qa_checklist_id, item_code, dimension, item_order, requirement_text, is_required, created_by)
+        select
+            'e5022000-0000-4000-8000-000000000020'::uuid,
+            'elig_' || dim, dim, 1,
+            'S5-002 eligibility ' || dim || ' requirement',
+            true,
+            'e5022000-0000-4000-8000-000000000001'::uuid
+        from unnest(array[
+            'strategic', 'factual', 'financial', 'visual',
+            'rights', 'brand', 'technical', 'conversion'
+        ]::text[]) as dim;
+
+        select public.activate_qa_checklist(
+            'e5022000-0000-4000-8000-000000000020'::uuid,
+            'e5022000-0000-4000-8000-000000000001'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'Activate S5-002 eligibility checklist', 'test'
+        );
+
+        insert into public.scenes (
+            id, content_item_id, content_version_id, scene_number,
+            narrative_objective, target_duration_seconds,
+            subject_specification, action_specification,
+            environment_specification, camera_specification,
+            lighting_specification, continuity_specification, created_by
+        )
+        values
+            (
+                'e5022000-0000-4000-8000-000000000040'::uuid,
+                'e5022000-0000-4000-8000-000000000006'::uuid,
+                'e5022000-0000-4000-8000-000000000012'::uuid,
+                1, 'Case C scene', 5,
+                'Subject', 'Action', 'Environment', 'Camera',
+                'Lighting', 'Continuity',
+                'e5022000-0000-4000-8000-000000000001'::uuid
+            ),
+            (
+                'e5022000-0000-4000-8000-000000000041'::uuid,
+                'e5022000-0000-4000-8000-000000000006'::uuid,
+                'e5022000-0000-4000-8000-000000000016'::uuid,
+                1, 'Case D scene', 5,
+                'Subject', 'Action', 'Environment', 'Camera',
+                'Lighting', 'Continuity',
+                'e5022000-0000-4000-8000-000000000001'::uuid
+            ),
+            (
+                'e5022000-0000-4000-8000-000000000042'::uuid,
+                'e5022000-0000-4000-8000-000000000007'::uuid,
+                'e5022000-0000-4000-8000-000000000023'::uuid,
+                1, 'Case E scene', 5,
+                'Subject', 'Action', 'Environment', 'Camera',
+                'Lighting', 'Continuity',
+                'e5022000-0000-4000-8000-000000000001'::uuid
+            ),
+            (
+                'e5022000-0000-4000-8000-000000000043'::uuid,
+                'e5022000-0000-4000-8000-000000000008'::uuid,
+                'e5022000-0000-4000-8000-000000000027'::uuid,
+                1, 'Case F scene', 5,
+                'Subject', 'Action', 'Environment', 'Camera',
+                'Lighting', 'Continuity',
+                'e5022000-0000-4000-8000-000000000001'::uuid
+            );
+
+        insert into public.scene_acceptance_criteria (id, scene_id, criterion_number, criterion_type, criterion_text, created_by)
+        values
+            ('e5022000-0000-4000-8000-000000000044'::uuid, 'e5022000-0000-4000-8000-000000000040'::uuid, 1, 'required', 'Case C criterion', 'e5022000-0000-4000-8000-000000000001'::uuid),
+            ('e5022000-0000-4000-8000-000000000045'::uuid, 'e5022000-0000-4000-8000-000000000041'::uuid, 1, 'required', 'Case D criterion', 'e5022000-0000-4000-8000-000000000001'::uuid),
+            ('e5022000-0000-4000-8000-000000000046'::uuid, 'e5022000-0000-4000-8000-000000000042'::uuid, 1, 'required', 'Case E criterion', 'e5022000-0000-4000-8000-000000000001'::uuid),
+            ('e5022000-0000-4000-8000-000000000047'::uuid, 'e5022000-0000-4000-8000-000000000043'::uuid, 1, 'required', 'Case F criterion', 'e5022000-0000-4000-8000-000000000001'::uuid);
+
+        insert into public.qa_reviews (id, content_version_id, qa_checklist_id, dimension, reviewer_profile_id, reviewer_role_id, correlation_id, environment)
+        select
+            gen_random_uuid(), cv.id,
+            'e5022000-0000-4000-8000-000000000020'::uuid, dim,
+            'e5022000-0000-4000-8000-000000000001'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'test'
+        from (values
+            ('e5022000-0000-4000-8000-000000000012'::uuid),
+            ('e5022000-0000-4000-8000-000000000016'::uuid),
+            ('e5022000-0000-4000-8000-000000000023'::uuid),
+            ('e5022000-0000-4000-8000-000000000027'::uuid)
+        ) as cv(id)
+        cross join unnest(array[
+            'strategic', 'factual', 'financial', 'visual',
+            'rights', 'brand', 'technical', 'conversion'
+        ]::text[]) as dim;
+
+        insert into public.qa_review_item_results (qa_review_id, qa_checklist_item_id, result, evaluator_profile_id, evaluator_role_id)
+        select
+            review.id, item.id, 'passed',
+            'e5022000-0000-4000-8000-000000000001'::uuid,
+            (select id from public.roles where code = 'approver')
+        from public.qa_reviews as review
+        join public.qa_checklist_items as item
+          on item.qa_checklist_id = review.qa_checklist_id
+         and item.dimension = review.dimension
+        where review.content_version_id in (
+            'e5022000-0000-4000-8000-000000000012'::uuid,
+            'e5022000-0000-4000-8000-000000000016'::uuid,
+            'e5022000-0000-4000-8000-000000000023'::uuid,
+            'e5022000-0000-4000-8000-000000000027'::uuid
+        );
+
+        update public.qa_reviews
+        set decision = 'approved'
+        where content_version_id in (
+            'e5022000-0000-4000-8000-000000000012'::uuid,
+            'e5022000-0000-4000-8000-000000000016'::uuid,
+            'e5022000-0000-4000-8000-000000000023'::uuid,
+            'e5022000-0000-4000-8000-000000000027'::uuid
+        );
+
+        select public.promote_content_version_to_approval_pending(
+            'e5022000-0000-4000-8000-000000000012'::uuid,
+            'e5022000-0000-4000-8000-000000000001'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'S5-002 eligibility fixture promote C', 'test'
+        );
+        select public.promote_content_version_to_approval_pending(
+            'e5022000-0000-4000-8000-000000000016'::uuid,
+            'e5022000-0000-4000-8000-000000000001'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'S5-002 eligibility fixture promote D', 'test'
+        );
+        select public.promote_content_version_to_approval_pending(
+            'e5022000-0000-4000-8000-000000000023'::uuid,
+            'e5022000-0000-4000-8000-000000000001'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'S5-002 eligibility fixture promote E', 'test'
+        );
+        select public.promote_content_version_to_approval_pending(
             'e5022000-0000-4000-8000-000000000027'::uuid,
-            'e5022000-0000-4000-8000-000000000029'::uuid, repeat('d4', 32),
+            'e5022000-0000-4000-8000-000000000001'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'S5-002 eligibility fixture promote F', 'test'
+        );
+
+        select public.approve_content_version(
+            'e5022000-0000-4000-8000-000000000012'::uuid,
+            'e5022000-0000-4000-8000-000000000001'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'S5-002 eligibility fixture approve C', 'Approved for eligibility fixture', 'test'
+        );
+        select public.approve_content_version(
+            'e5022000-0000-4000-8000-000000000016'::uuid,
+            'e5022000-0000-4000-8000-000000000001'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'S5-002 eligibility fixture approve D', 'Approved for eligibility fixture', 'test'
+        );
+        select public.approve_content_version(
+            'e5022000-0000-4000-8000-000000000023'::uuid,
+            'e5022000-0000-4000-8000-000000000001'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'S5-002 eligibility fixture approve E', 'Approved for eligibility fixture', 'test'
+        );
+        select public.approve_content_version(
+            'e5022000-0000-4000-8000-000000000027'::uuid,
+            'e5022000-0000-4000-8000-000000000001'::uuid,
+            (select id from public.roles where code = 'approver'),
+            gen_random_uuid(), 'S5-002 eligibility fixture approve F', 'Approved for eligibility fixture', 'test'
+        );
+
+        -- Case D's open critical defect, attached to its now-approved
+        -- 'technical' dimension review (id no longer hardcoded -- the
+        -- review is created above by the batch insert with a random id).
+        insert into public.qa_defects (id, qa_review_id, severity, defect_type, title, description, status, assigned_to_profile_id, opened_by, opened_role_id, correlation_id, environment)
+        values (
+            'e5022000-0000-4000-8000-000000000022'::uuid,
+            (
+                select id from public.qa_reviews
+                where content_version_id = 'e5022000-0000-4000-8000-000000000016'::uuid
+                  and dimension = 'technical'
+            ),
+            'critical', 'factual_error', 'Case D open critical defect',
+            'Blocks eligibility per Section 4.3', 'open',
+            'e5022000-0000-4000-8000-000000000001'::uuid,
             'e5022000-0000-4000-8000-000000000001'::uuid,
             (select id from public.roles where code = 'approver'),
             gen_random_uuid(), 'test'
