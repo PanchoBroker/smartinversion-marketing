@@ -115,13 +115,21 @@ select lives_ok(
                 'e5022000-0000-4000-8000-000000000001'::uuid
             );
 
+        -- Unblocked content_items use 'backlog', the one content_item
+        -- state with no production-pipeline gate on state_transition_
+        -- subjects (S3-003/S4-007 gate 'researching'/'ready'/'preproduction'/
+        -- 'generation'/'editing'/'qa'/'scheduled' on unrelated preconditions
+        -- -- scenes, generation_attempt_evaluations, campaign_evidence --
+        -- this fixture does not set up and does not need to, since this
+        -- gate only cares whether the state is 'blocked', not which
+        -- unblocked state it is). 'blocked' itself carries no gate either.
         insert into public.state_transition_subjects (object_type, object_id, machine_code, current_state)
         values
             ('campaign', 'e5022000-0000-4000-8000-000000000004'::uuid, 'campaign', 'active'),
             ('campaign', 'e5022000-0000-4000-8000-000000000005'::uuid, 'campaign', 'paused'),
-            ('content_item', 'e5022000-0000-4000-8000-000000000006'::uuid, 'content_item', 'preproduction'),
+            ('content_item', 'e5022000-0000-4000-8000-000000000006'::uuid, 'content_item', 'backlog'),
             ('content_item', 'e5022000-0000-4000-8000-000000000007'::uuid, 'content_item', 'blocked'),
-            ('content_item', 'e5022000-0000-4000-8000-000000000008'::uuid, 'content_item', 'preproduction');
+            ('content_item', 'e5022000-0000-4000-8000-000000000008'::uuid, 'content_item', 'backlog');
     $shared_fixture$,
     'Shared profile/role/opportunity/campaigns/content_items/state_transition_subjects fixtures are created'
 );
