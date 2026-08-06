@@ -49,6 +49,7 @@ docs/
   data-conventions.md
   decision-register.md
   f4-production-qa-contract.md
+  f5-distribution-measurement-contract.md
   g0-gate-review.md
   g1-gate-review.md
   g2-gate-review.md
@@ -1716,6 +1717,219 @@ This validation does not prove the configuration of the hosted Supabase project.
 - Supabase redirect URLs: https://supabase.com/docs/guides/auth/redirect-urls
 - Supabase invitation API: https://supabase.com/docs/reference/javascript/auth-admin-inviteuserbyemail
 - Supabase email templates: https://supabase.com/docs/guides/auth/auth-email-templates
+````
+
+## File: docs/f5-distribution-measurement-contract.md
+````markdown
+# F5 Distribution and Measurement Contract
+
+Contract ID: S5-001\
+Phase: F5 — Distribución/Medición\
+Status: Normative prerequisite\
+Target gate: G5
+
+## 1. Purpose and scope
+
+This contract fixes the normative prerequisites for Phase F5 before its publication, attribution, capture, lead-delivery and measurement structures are implemented.
+
+S5-001 defines the F4/F5/F6 phase boundary, the publication lifecycle and eligibility gate, the minimum contracts for the entities Phase F5 introduces, and the authorization defaults that already govern this domain. It does not implement the complete F5 data model or any external distribution/measurement provider integration.
+
+The phase continues to use synthetic data only. S5-001 must not integrate Runway, Director IA, TikTok, Meta, a real email/webhook provider, or any other external generation, distribution or measurement provider, per `docs/g4-gate-review.md` §8 conditions 10 and 11.
+
+## 2. Source hierarchy and canonical names
+
+This contract derives from the approved physical schema already merged through Gate G4, the two Sprint-0 preliminary contracts already approved into `main` (`docs/preliminary-form-contract.md`, S0-015; `docs/lead-delivery-contract.md`, S0-016), `docs/access-control-matrix.md` §§12-15, and `docs/g4-gate-review.md` §8's conditions of advancement.
+
+When a preliminary document name conflicts with an implemented physical name, the implemented and reviewed physical name is authoritative unless a later migration explicitly renames it. No such conflict was found while drafting S5-001: `restricted.leads`, `restricted.form_submissions`, `restricted.lead_consents` and `restricted.lead_deliveries` (S1-010) already match the entities and columns S0-015/S0-016 describe.
+
+The canonical physical name for a published or scheduled piece of content on one platform is `publications`. The canonical physical name for a campaign/publication/variant attribution token is `tracking_links`.
+
+## 3. Phase boundary (F4 / F5 / F6)
+
+`docs/core-schema.md` §11.5 fixes the single `content_item` lifecycle spanning all delivery phases: `backlog → researching → ready → preproduction → generation → editing → qa → scheduled → published → measuring → closed`. Per the Phase 3/Phase 4 boundary already fixed by D-13, and extending the same reasoning to the Phase 4/Phase 5 boundary:
+
+- F4 ("Producción/QA") owns every state through `qa`, plus the exact `content_versions` approval gate that makes a version eligible for what comes next (`docs/f4-production-qa-contract.md`, S4-001..S4-010, Gate G4).
+- **F5 ("Distribución"/"Medición") owns `scheduled`, `published` and the production side of `measuring`** — that is, `publications` (§6.5), `tracking_links` (§6.5), the public capture and lead-delivery pipeline (§6.6), and the raw measurement layer `metric_definitions`/`metric_observations`/`campaign_reports` (§6.7, P1/P2).
+- F6 ("Aprendizaje") owns `learning_records` only — the qualitative hypothesis/observation/interpretation layer. F6 was already built as an isolated parallel track (`supabase/migrations/20260731140000_f6_learning_records.sql`, no FK to `campaigns`, no RLS yet, still untracked in git) independently of F4/F5's own progress, per the existing Registro de Patrones entry ("F6 es un track paralelo, no una fase futura fuera de secuencia"). `learning_records` is **not** an F5 deliverable and F5 does not need it to exist to close its own scope; the two remain independently useful and are reconciled, if needed, only when a later segment explicitly wires `metric_observations` into `learning_records.evidence`.
+
+This boundary statement is the F5 equivalent of D-13 and SHOULD be entered into `docs/decision-register.md` as a new decision once S5-001 is reviewed, following the same pattern D-13, D-15 and D-16 already established.
+
+## 4. Publication lifecycle
+
+### 4.1 Official publication states
+
+`docs/core-schema.md` §11.9 already fixes the official values of `publications.status`:
+
+| State | Meaning |
+|---|---|
+| `draft` | The publication record exists but has not been scheduled. |
+| `ready` | The publication is fully configured and eligible, awaiting a scheduled time. |
+| `scheduled` | A future publication time is set and confirmed. |
+| `published` | The content version is live on the target platform (synthetic in F5). |
+| `paused` | An active or scheduled publication is temporarily suspended. |
+| `withdrawn` | Publication was intentionally stopped or removed. |
+| `archived` | The publication is historical and cannot return to the active workflow. |
+| `failed` | Automatic scheduling or publication could not complete. |
+
+The initial state is `draft`.
+
+### 4.2 Permitted transitions
+
+§11.9 fixes the state vocabulary but not its transition graph. S5-001 fixes it now, mirroring the rigor `docs/f4-production-qa-contract.md` §5 applied to `content_versions.status`:
+
+- `draft -> ready`
+- `ready -> scheduled`
+- `ready -> draft` (eligibility lost before scheduling)
+- `scheduled -> published`
+- `scheduled -> paused`
+- `scheduled -> withdrawn`
+- `scheduled -> failed`
+- `paused -> scheduled`
+- `paused -> withdrawn`
+- `published -> paused`
+- `published -> withdrawn`
+- `published -> archived`
+- `withdrawn -> archived`
+- `failed -> draft` (corrected and resubmitted)
+- `failed -> archived`
+
+At minimum, the following transitions are prohibited:
+
+- `draft -> scheduled` (must pass through `ready`)
+- `draft -> published`
+- any state `-> published` other than `scheduled -> published`
+- `archived ->` any active state
+- `withdrawn -> published`
+
+Every transition must pass through the controlled state-transition service and must create an auditable record containing the actor, reason, prior state, resulting state and correlation context, per the same invariant `docs/f4-production-qa-contract.md` §5 already established for `content_versions`.
+
+### 4.3 Publication eligibility gate
+
+`docs/f4-production-qa-contract.md` §14 already fixes the eligibility rule for a `content_version` to become eligible for scheduling or publication. S5-001 does not restate or re-litigate that rule; it carries it forward unchanged and binding:
+
+> A version is eligible for scheduling or publication only when its status is `approved`, its approval is current and not invalidated, the approved master asset and checksum still match, required claims and evidence remain approved/current/in scope, required rights remain valid, no critical defect is open, no parent campaign or controlling dependency is blocked, and a public derivative is created from the approved private master through the controlled publication workflow.
+
+`ready -> scheduled` MUST NOT be permitted unless this gate passes at the moment of the transition, not only at `publications` creation time. Any controlling condition change that would invalidate the source `content_version`'s approval (per `docs/f4-production-qa-contract.md` §13) MUST also transition any dependent `scheduled` or `published` publication toward `paused` or `withdrawn` rather than leaving it live against an invalidated version. This is `docs/g4-gate-review.md` §8 condition 9 ("future publication eligibility... implemented and tested before any Phase 5 scheduling or publication route depends on it") satisfied by implementation, not by restatement.
+
+The private master must never be made public by changing its storage permissions, per the same rule already fixed in `docs/f4-production-qa-contract.md` §14. A separate approved public copy must preserve its relationship to the private master.
+
+### 4.4 Synthetic-only publication
+
+Per `docs/g4-gate-review.md` §8 conditions 10-11, every `publications.platform` value implemented in F5 MUST be a synthetic/mock target. `external_id` and `public_url` MUST be synthetic placeholders, never a real call to Runway, Director IA, TikTok, Meta or any other external distribution provider. `docs/g4-gate-review.md` §9's explicit prohibitions apply to F5 without exception.
+
+## 5. `tracking_links`
+
+`tracking_links` binds one campaign, one publication and one attribution variant to an opaque token used to trace conversion back to its originating publication, consistent with `docs/access-control-matrix.md` §12's existing role matrix for the object.
+
+Minimum contract:
+
+- A `tracking_links` row MUST reference exactly one `campaigns` row and exactly one `publications` row.
+- The token MUST be opaque and MUST NOT encode PII, campaign secrets or an internal database identifier in a reversible form.
+- A token remains valid only while its parent publication is not `archived` or `withdrawn`; the exact expiry/pause propagation is an implementation decision for the segment that builds this table, bounded by that invariant.
+- `tracking_links` rows are append-preserving: a corrected variant creates a new token rather than mutating a token already in use by a live publication.
+
+Exact columns beyond this minimum contract are an implementation decision for the segment that creates the table, the same latitude `docs/f4-production-qa-contract.md` left to `S4-002`/`S4-004` for `scenes`/`assets` beyond their own minimum contract.
+
+## 6. Public capture and lead delivery
+
+`docs/preliminary-form-contract.md` (S0-015) and `docs/lead-delivery-contract.md` (S0-016) are Sprint-0 preliminary normative proposals already approved into `main` per their own §36/§62 approval boundary ("merging this document into `main` approves the preliminary contract for future implementation"). S5-001 re-verified both against the schema and access model as they stand today and found no contradiction:
+
+- `restricted.leads`, `restricted.form_submissions`, `restricted.lead_consents` and `restricted.lead_deliveries` (S1-010) already implement the physical isolation boundary (D-10) both contracts assume, with the exact fields S0-015 §8-9 and core-schema §10.17-10.20 describe.
+- `docs/access-control-matrix.md` §13 (form submission/prospect boundary) and §14 (Leads and PII matrix) already fix the same access rules S0-015 §6 and S0-016 §50 describe in narrative form.
+- `form_sessions`, `lead_attribution` and `lead_status_events` (S0-015 §16-17, S0-016 §9) remain undefined as physical tables; their minimum contract is exactly what S0-015 §16.2/§17.1 and S0-016 §9 already specify, and no new normative rule is required here.
+
+**S5-001 formally carries S0-015 and S0-016 forward as F5's own normative capture and delivery contract**, unchanged, subject to two F5-specific constraints neither document could fix in Sprint 0 because Gate G4 did not exist yet:
+
+1. Per `docs/g4-gate-review.md` §8 condition 10, every F5 implementation of the capture/delivery pipeline MUST use synthetic prospects only. No real lead may be captured, classified or delivered until D-06 (consent) and D-07 (retention) move out of `Conditioned` and D-08 (`MC-REG-001` pilot scope) moves out of `Provisional`, per `docs/decision-register.md`.
+2. Per `docs/g4-gate-review.md` §8 condition 11, every delivery destination implemented in F5 MUST be a disabled, local or synthetic adapter (`docs/lead-delivery-contract.md` §49). No real `email`/`webhook`/`internal_inbox` destination may be activated in F5.
+
+Both S0-documents already anticipated exactly this posture (S0-015 §36, S0-016 §62's own "approval does not authorize... collecting real prospect data / real recipient" clauses) — F5 does not weaken or reinterpret them, it only confirms they remain in force.
+
+## 7. Measurement
+
+### 7.1 `metric_definitions`
+
+A versioned canonical metric name, unit and formula, per `docs/core-schema.md` §6.7 and `docs/access-control-matrix.md` §15. Minimum contract:
+
+- A definition MUST be versioned; changing a formula or unit creates a new version rather than mutating a definition already referenced by an observation.
+- A definition MUST NOT be deleted while an `metric_observations` row references it; it may be deprecated instead.
+- Definitions are approved content, not per-campaign configuration — role access follows §15's `Approved R` column for roles outside Results analyst/Campaign manager.
+
+### 7.2 `metric_observations`
+
+A metric value scoped to one campaign, one publication (when applicable), one period and one source, per `docs/core-schema.md` §6.7.
+
+Minimum contract:
+
+- An observation MUST reference exactly one `metric_definitions` row (by its exact version) and MAY reference one `publications` row when the metric is publication-scoped.
+- An observation MUST record its source (synthetic in F5 — no real platform API integration per §4.4/§6 of this contract) and its observation period.
+- Observations are append-preserving: a corrected value creates a new observation rather than overwriting a prior one, consistent with the append-preserving pattern already used by `generation_attempts` (F4) and `qa_reviews`/`approvals` attempt history.
+- No `metric_observations` row may be populated from a real external analytics/ads provider in F5, per condition 11.
+
+### 7.3 `campaign_reports` (P2)
+
+A versioned campaign closing report and artifact reference, per `docs/core-schema.md` §6.7. P2 priority: not required for F5's own Gate G5 target (§10 below); deferred to whichever F5 segment the team schedules after the P1 entities are complete, consistent with how `docs/core-schema.md` §7 defines P2 as "part of the approved target model but not required in the first migration."
+
+## 8. Unsupported access qualifiers
+
+Any authorization qualifier that is not backed by an enforceable physical relationship in the implemented schema must fail closed, per the same rule `docs/f4-production-qa-contract.md` §16 already fixed for F4. This applies without exception to F5's own domain (`publications`, `tracking_links`, the capture/delivery pipeline, `metric_definitions`/`metric_observations`).
+
+F5 does not expand RLS policies to compensate for any qualifier `docs/g4-gate-review.md` §8 condition 2 already carries forward as open (financial_models/investment_theses qualifiers, the campaign_manager evidence-family qualifier, and the F2/F3 "Related" qualifiers). Those remain exactly as owned and blocking as Gate G4 defined them; F5 neither closes nor worsens any of them.
+
+## 9. Critical conditions specific to F5
+
+The following block scheduling, publication or delivery in addition to the critical-defect list `docs/f4-production-qa-contract.md` §15 already fixes for F4 (which continues to apply, since an F4 critical defect on the source `content_version` also blocks its dependent `publications` row per §4.3 above):
+
+- A `publications` row reaching `scheduled` or `published` while its source `content_version` is not `approved`, or while that approval has been invalidated.
+- A real (non-synthetic) destination, platform credential or external provider call anywhere in the F5 implementation, before Gate G4 condition 11 is separately lifted.
+- A real prospect captured, classified or delivered anywhere in the F5 implementation, before D-06/D-07/D-08 are resolved per Gate G4 condition 10 and `docs/decision-register.md`.
+- Full contact PII (name, email, telephone) reaching general application logs or an unmasked view outside the roles `docs/access-control-matrix.md` §14.1 already names.
+
+## 10. S5-001 acceptance criteria
+
+S5-001 is acceptable only when:
+
+1. This contract exists in `docs/f5-distribution-measurement-contract.md`.
+2. The F4/F5/F6 phase boundary is explicit and consistent with D-13's existing reasoning.
+3. The eight official `publications` states and their permitted transitions are fixed.
+4. The publication eligibility gate carries `docs/f4-production-qa-contract.md` §14 forward without weakening it, and binds it to the transition graph, not only to record creation.
+5. `tracking_links`' minimum contract is fixed.
+6. S0-015 and S0-016 are formally carried forward as F5's capture/delivery contract, with the two Gate-G4-era constraints (synthetic prospects only; disabled/synthetic destinations only) made explicit.
+7. `metric_definitions` and `metric_observations`' minimum contracts are fixed; `campaign_reports` is explicitly deferred as P2.
+8. Unsupported authorization qualifiers fail closed across the full F5 domain.
+9. F5-specific critical conditions are explicit and block scheduling/publication/delivery.
+10. S5-001 changes pass the repository validation suite.
+11. No preliminary F6 file or unrelated untracked file is added to the S5-001 change set.
+
+The contract alone does not close S5-001. Entering the phase-boundary decision into `docs/decision-register.md` (§3 above) and the segments listed in §11 below must also be completed before Gate G5 is reviewed.
+
+## 11. Responsibility allocation for F5 segments
+
+| Segment | Responsibility |
+|---|---|
+| `S5-002` | Implement `publications`, the state-transition service and the eligibility-gate wiring fixed in §4. |
+| `S5-003` | Implement `tracking_links` consistently with §5. |
+| `S5-004` | Implement the public capture surface (`form_sessions`, wiring of `restricted.form_submissions`/`leads`/`lead_consents`) per S0-015, synthetic-only. |
+| `S5-005` | Implement lead delivery (wiring of `restricted.lead_deliveries`, `outbox_events` processing, `lead_attribution`) per S0-016, disabled/synthetic adapters only. |
+| `S5-006` | Implement F5 RLS and storage/API authorization for the full domain, per `docs/access-control-matrix.md` §§12-15, preserving fail-closed unsupported qualifiers. |
+| `S5-007` | Implement `metric_definitions` and `metric_observations` per §7. |
+| `S5-008` | Implement the private F5 API (publication, capture, delivery, measurement routes). |
+| `S5-009` | Implement the transversal F5 cross-surface authorization test suite. |
+| `S5-010` | Review Gate G5, reconcile traceability and close F5. |
+
+No later segment may weaken the invariants established by S5-001. A required change must be documented as an explicit contract decision before implementation, per the same rule `docs/f4-production-qa-contract.md` §21 already fixed for F4.
+
+## 12. Gate G5 target
+
+Gate G5 is satisfied when one approved content version can be scheduled and published under the eligibility gate fixed in §4.3, when a synthetic prospect can be captured and delivered end to end through the pipeline S0-015/S0-016 already contracted, and when a synthetic measurement observation can be recorded against a publication — all without any real destination, real provider or real personal data anywhere in the chain.
+
+At G5, the repository must demonstrate that:
+
+- A `publications` row cannot reach `scheduled` while its source version is unapproved or invalidated.
+- Invalidating a `content_version`'s approval after scheduling propagates to its dependent publication rather than leaving it live.
+- A non-`prefiltered` synthetic contact cannot generate automatic delivery.
+- No real destination, credential or external provider call exists anywhere in the F5 change set.
+- The implemented controls are enforced by services, authorization and behavioral tests rather than by interface convention alone.
 ````
 
 ## File: docs/g0-gate-review.md
@@ -6289,6 +6503,508 @@ begin;
 drop table if exists public.sprint0_migration_smoke_test;
 
 commit;
+````
+
+## File: supabase/migrations/20260721053757_profiles_roles_rbac_s1_002.sql
+````sql
+-- S1-002: Profiles, canonical roles and time-bounded role assignments.
+-- Functional trace: FR-GOV-001, FR-GOV-002.
+-- Technical trace: ADR-003, ADR-009, ADR-010.
+
+create extension if not exists btree_gist with schema extensions;
+
+set search_path = public, extensions;
+
+-- Profiles
+
+create table public.profiles (
+    id uuid primary key default gen_random_uuid(),
+    auth_user_id uuid not null unique
+        references auth.users(id) on update cascade on delete restrict,
+    display_name text not null,
+    account_status text not null default 'active',
+    last_active_at timestamptz,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+
+    constraint profiles_display_name_not_blank
+        check (btrim(display_name) <> ''),
+
+    constraint profiles_account_status_normalized
+        check (account_status ~ '^[a-z][a-z0-9_]*$')
+);
+
+comment on table public.profiles is
+    'Application profile associated with one Supabase Auth identity.';
+
+comment on column public.profiles.account_status is
+    'Normalized application account state. Only active accounts authorize operations.';
+
+-- Canonical role catalog
+
+create table public.roles (
+    id uuid primary key default gen_random_uuid(),
+    code text not null unique,
+    name text not null unique,
+    description text not null,
+    is_machine boolean not null default false,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+
+    constraint roles_code_normalized
+        check (code ~ '^[a-z][a-z0-9_]*$'),
+
+    constraint roles_name_not_blank
+        check (btrim(name) <> ''),
+
+    constraint roles_description_not_blank
+        check (btrim(description) <> '')
+);
+
+comment on table public.roles is
+    'Stable catalog of approved canonical internal roles.';
+
+insert into public.roles (code, name, description, is_machine)
+values
+    (
+        'administrator',
+        'Administrator',
+        'User, role, catalog, configuration and restricted governance administration.',
+        false
+    ),
+    (
+        'commercial_owner',
+        'Commercial owner',
+        'Commercial opportunity, campaign ownership, priority and approval decisions.',
+        false
+    ),
+    (
+        'investment_analyst',
+        'Investment analyst',
+        'Sources, evidence, financial models, investment theses and claims.',
+        false
+    ),
+    (
+        'campaign_manager',
+        'Campaign manager',
+        'Campaign briefs, hypotheses, backlog, calendar and lifecycle coordination.',
+        false
+    ),
+    (
+        'creative_owner',
+        'Creative owner',
+        'Creative concepts, scripts, hooks, scenes and content acceptance criteria.',
+        false
+    ),
+    (
+        'director_ai_operator',
+        'Director IA operator',
+        'Prompt versions, model configurations, generation attempts and iteration decisions.',
+        false
+    ),
+    (
+        'editor',
+        'Editor',
+        'Asset editing, content versions, masters, exports and technical corrections.',
+        false
+    ),
+    (
+        'approver',
+        'Approver',
+        'QA review, defects, exact-version approval and release-readiness decisions.',
+        false
+    ),
+    (
+        'publisher',
+        'Publisher',
+        'Publication scheduling, platform records, tracking and public lifecycle operations.',
+        false
+    ),
+    (
+        'commercial_liaison',
+        'Commercial liaison',
+        'Controlled lead reception, delivery confirmation and authorized commercial follow-up.',
+        false
+    ),
+    (
+        'results_analyst',
+        'Results analyst',
+        'Metrics, observations, funnels, hypothesis results and campaign learning.',
+        false
+    ),
+    (
+        'system_worker',
+        'System worker',
+        'Machine-only processing for outbox, retries, imports, retention and health operations.',
+        true
+    )
+on conflict (code) do update
+set
+    name = excluded.name,
+    description = excluded.description,
+    is_machine = excluded.is_machine,
+    updated_at = now();
+
+-- Time-bounded role assignments
+
+create table public.role_assignments (
+    id uuid primary key default gen_random_uuid(),
+    profile_id uuid not null
+        references public.profiles(id) on update cascade on delete restrict,
+    role_id uuid not null
+        references public.roles(id) on update cascade on delete restrict,
+    valid_from timestamptz not null default now(),
+    valid_until timestamptz,
+    assigned_by uuid not null
+        references public.profiles(id) on update cascade on delete restrict,
+    revoked_at timestamptz,
+    revoked_by uuid
+        references public.profiles(id) on update cascade on delete restrict,
+    reason text not null,
+    created_at timestamptz not null default now(),
+    updated_at timestamptz not null default now(),
+
+    constraint role_assignments_reason_not_blank
+        check (btrim(reason) <> ''),
+
+    constraint role_assignments_no_self_assignment
+        check (assigned_by <> profile_id),
+
+    constraint role_assignments_valid_period
+        check (valid_until is null or valid_until > valid_from),
+
+    constraint role_assignments_revocation_complete
+        check (
+            (revoked_at is null and revoked_by is null)
+            or
+            (revoked_at is not null and revoked_by is not null)
+        ),
+
+    constraint role_assignments_revocation_after_start
+        check (revoked_at is null or revoked_at >= valid_from)
+);
+
+comment on table public.role_assignments is
+    'Auditable, time-bounded assignment of one canonical role to one profile.';
+
+alter table public.role_assignments
+    add constraint role_assignments_no_overlapping_periods
+    exclude using gist (
+        profile_id with =,
+        role_id with =,
+        tstzrange(
+            valid_from,
+            coalesce(valid_until, 'infinity'::timestamptz),
+            '[)'
+        ) with &&
+    )
+    where (revoked_at is null);
+
+-- Minimum protected business audit foundation
+
+create table public.audit_events (
+    id uuid primary key default gen_random_uuid(),
+    actor_profile_id uuid
+        references public.profiles(id) on update cascade on delete restrict,
+    role_exercised_id uuid
+        references public.roles(id) on update cascade on delete restrict,
+    action text not null,
+    object_type text not null,
+    object_id uuid,
+    occurred_at timestamptz not null default now(),
+    reason text,
+    correlation_id uuid not null default gen_random_uuid(),
+    before_summary jsonb,
+    after_summary jsonb,
+    environment text not null default 'unknown',
+
+    constraint audit_events_action_not_blank
+        check (btrim(action) <> ''),
+
+    constraint audit_events_object_type_not_blank
+        check (btrim(object_type) <> ''),
+
+    constraint audit_events_environment_not_blank
+        check (btrim(environment) <> ''),
+
+    constraint audit_events_before_summary_object
+        check (
+            before_summary is null
+            or jsonb_typeof(before_summary) = 'object'
+        ),
+
+    constraint audit_events_after_summary_object
+        check (
+            after_summary is null
+            or jsonb_typeof(after_summary) = 'object'
+        )
+);
+
+comment on table public.audit_events is
+    'Append-only audit evidence for sensitive and business-critical actions.';
+
+-- Trusted updated_at function
+
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+    new.updated_at := now();
+    return new;
+end;
+$$;
+
+create trigger profiles_set_updated_at
+before update on public.profiles
+for each row
+execute function public.set_updated_at();
+
+create trigger roles_set_updated_at
+before update on public.roles
+for each row
+execute function public.set_updated_at();
+
+create trigger role_assignments_set_updated_at
+before update on public.role_assignments
+for each row
+execute function public.set_updated_at();
+
+-- Role-assignment integrity
+
+create or replace function public.validate_role_assignment()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+    target_is_machine boolean;
+begin
+    select r.is_machine
+      into target_is_machine
+      from public.roles as r
+     where r.id = new.role_id;
+
+    if target_is_machine is null then
+        raise exception 'Role does not exist';
+    end if;
+
+    if target_is_machine then
+        raise exception 'Machine roles cannot be assigned to human profiles';
+    end if;
+
+    if tg_op = 'UPDATE' then
+        if old.revoked_at is not null then
+            raise exception 'A revoked role assignment is immutable';
+        end if;
+
+        if new.profile_id is distinct from old.profile_id
+           or new.role_id is distinct from old.role_id
+           or new.valid_from is distinct from old.valid_from
+           or new.valid_until is distinct from old.valid_until
+           or new.assigned_by is distinct from old.assigned_by
+           or new.reason is distinct from old.reason
+           or new.created_at is distinct from old.created_at then
+            raise exception
+                'Existing role assignments may only be revoked; create a new assignment for other changes';
+        end if;
+
+        if new.revoked_at is null or new.revoked_by is null then
+            raise exception
+                'Role-assignment revocation requires revoked_at and revoked_by';
+        end if;
+    end if;
+
+    return new;
+end;
+$$;
+
+create trigger role_assignments_validate
+before insert or update on public.role_assignments
+for each row
+execute function public.validate_role_assignment();
+
+-- Automatic role-assignment audit evidence
+
+create or replace function public.audit_role_assignment_change()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+    administrator_role_id uuid;
+    audit_actor uuid;
+    audit_action text;
+    audit_reason text;
+    configured_correlation_id uuid;
+    configured_environment text;
+begin
+    select r.id
+      into administrator_role_id
+      from public.roles as r
+     where r.code = 'administrator';
+
+    configured_correlation_id :=
+        coalesce(
+            nullif(current_setting('app.correlation_id', true), '')::uuid,
+            gen_random_uuid()
+        );
+
+    configured_environment :=
+        coalesce(
+            nullif(current_setting('app.environment', true), ''),
+            'unknown'
+        );
+
+    if tg_op = 'INSERT' then
+        audit_actor := new.assigned_by;
+        audit_action := 'role_assignment.created';
+        audit_reason := new.reason;
+
+        insert into public.audit_events (
+            actor_profile_id,
+            role_exercised_id,
+            action,
+            object_type,
+            object_id,
+            reason,
+            correlation_id,
+            after_summary,
+            environment
+        )
+        values (
+            audit_actor,
+            administrator_role_id,
+            audit_action,
+            'role_assignment',
+            new.id,
+            audit_reason,
+            configured_correlation_id,
+            jsonb_build_object(
+                'profile_id', new.profile_id,
+                'role_id', new.role_id,
+                'valid_from', new.valid_from,
+                'valid_until', new.valid_until,
+                'assigned_by', new.assigned_by
+            ),
+            configured_environment
+        );
+
+        return new;
+    end if;
+
+    audit_actor := new.revoked_by;
+    audit_action := 'role_assignment.revoked';
+    audit_reason := new.reason;
+
+    insert into public.audit_events (
+        actor_profile_id,
+        role_exercised_id,
+        action,
+        object_type,
+        object_id,
+        reason,
+        correlation_id,
+        before_summary,
+        after_summary,
+        environment
+    )
+    values (
+        audit_actor,
+        administrator_role_id,
+        audit_action,
+        'role_assignment',
+        new.id,
+        audit_reason,
+        configured_correlation_id,
+        jsonb_build_object(
+            'revoked_at', old.revoked_at,
+            'revoked_by', old.revoked_by
+        ),
+        jsonb_build_object(
+            'revoked_at', new.revoked_at,
+            'revoked_by', new.revoked_by
+        ),
+        configured_environment
+    );
+
+    return new;
+end;
+$$;
+
+create trigger role_assignments_audit
+after insert or update on public.role_assignments
+for each row
+execute function public.audit_role_assignment_change();
+
+-- Protected append-only history
+
+create or replace function public.reject_protected_history_mutation()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+    raise exception '% is append-only and cannot be updated or deleted', tg_table_name;
+end;
+$$;
+
+create trigger audit_events_reject_mutation
+before update or delete on public.audit_events
+for each row
+execute function public.reject_protected_history_mutation();
+
+create trigger role_assignments_reject_delete
+before delete on public.role_assignments
+for each row
+execute function public.reject_protected_history_mutation();
+
+-- Supporting indexes
+
+create index profiles_account_status_idx
+    on public.profiles (account_status);
+
+create index profiles_last_active_at_idx
+    on public.profiles (last_active_at desc);
+
+create index roles_is_machine_idx
+    on public.roles (is_machine);
+
+create index role_assignments_profile_id_idx
+    on public.role_assignments (profile_id);
+
+create index role_assignments_role_id_idx
+    on public.role_assignments (role_id);
+
+create index role_assignments_effective_lookup_idx
+    on public.role_assignments (
+        profile_id,
+        valid_from,
+        valid_until
+    )
+    where revoked_at is null;
+
+create index audit_events_actor_occurred_at_idx
+    on public.audit_events (actor_profile_id, occurred_at desc);
+
+create index audit_events_object_idx
+    on public.audit_events (object_type, object_id, occurred_at desc);
+
+create index audit_events_correlation_id_idx
+    on public.audit_events (correlation_id);
+
+-- RLS baseline: enabled without permissive policies.
+-- Policies will be introduced by S1-004 after S1-003 authorization services.
+
+alter table public.profiles enable row level security;
+alter table public.roles enable row level security;
+alter table public.role_assignments enable row level security;
+alter table public.audit_events enable row level security;
 ````
 
 ## File: supabase/migrations/20260731140000_f6_learning_records.sql
@@ -22105,267 +22821,6 @@ Before S3-009 can be merged:
 - The merge commit and final CI run must be recorded in the project testigo.
 ````
 
-## File: docs/g4-gate-review.md
-````markdown
-# Gate G4 Review Record
-
-## Marketing Content — Smartinversion
-
-| Field | Value |
-|---|---|
-| Work item | S4-011 |
-| Gate | G4 |
-| Review date | 2026-08-05 |
-| Reviewed baseline | `500aed8` (main, origin/main) |
-| Review branch | `docs/g4-review` |
-| Decision | ADVANCE CONDITIONALLY — **RATIFIED**, Section 11 |
-| Ratified | 2026-08-06, by the product owner (Francisco), Section 11 |
-| Authorized next scope | Phase 5 ("Distribución"/"Medición") planning and synthetic-only implementation |
-| Production authorization | NOT GRANTED |
-
-## 1. Purpose
-
-This record closes Phase 4 ("Producción/QA") by evaluating S4-001 through S4-010 against `docs/f4-production-qa-contract.md`, `docs/requirements-traceability-f4.md`, the twelve conditions carried forward from Gate G3, and the automated evidence produced across the phase.
-
-The review distinguishes:
-
-- capabilities demonstrated and accepted;
-- Gate G3 conditions closed during Phase 4;
-- Gate G3 conditions correctly outside Phase 4's domain, carried forward unchanged;
-- Gate G3 conditions that remain F4's own unaddressed technical debt;
-- deferred Phase 5 scope;
-- newly identified defects, corrections and documentation gaps;
-- the exact scope authorized after Gate G4.
-
-Approval of G4 does not authorize production deployment, real content generation, real publication, paid media, external generation/publication provider integration, production credentials or unrestricted access to commercial data.
-
-## 2. Decision rule
-
-Gate G4 may advance only when:
-
-- every P0 Phase 4 item is accepted with real evidence;
-- every applicable Gate G3 condition (§8) is closed, explicitly confirmed outside F4's domain, or explicitly carried forward as owned, non-critical technical debt;
-- no unresolved critical authorization or data-exposure defect exists;
-- test evidence is reproducible;
-- required gaps are explained, not silently closed;
-- every surviving condition has an owner and blocking point;
-- production-only scope remains explicitly prohibited.
-
-A functional defect may remain conditioned only when it does not expose data, does not weaken authorization, is not represented as complete, has an explicit owner and must be resolved before the first dependent Phase 5 or production use.
-
-## 3. Verification performed
-
-### 3.1 Repository baseline
-
-The review was performed against:
-
-```text
-500aed8 (main, origin/main)
-merge: cross-surface authorization suite for production/QA (S4-010) (#61)
-```
-
-Before drafting this record:
-
-- `main` real was confirmed, via real `git log --oneline origin/main` output pasted by the user during this session, to include S4-001 through S4-010 — correcting an initial misassumption that S4-009/S4-010 were already integrated when in fact they existed only as local commits at the start of this session;
-- no parallel session had modified `docs/decision-register.md` or `docs/requirements-traceability-f3.md`/`-f4.md`;
-- parallel F6 (Aprendizaje) work remains its own closed, parallel track (Registro de Patrones), outside this review, not treated as out-of-sequence.
-
-### 3.2 Phase 4 delivery chain
-
-| Item | Merge commit | Pull request | Status |
-| --- | --- | --- | --- |
-| S4-001 | `168b692` | #52 | Accepted |
-| S4-002 | `6bd362f` | #53 | Accepted (squash-merged — the one F4 segment without a separate merge commit, same non-blocking historial inconsistency already noted for S2-002) |
-| S4-003 | `f80e842` | #54 | Accepted |
-| S4-004 | `7fa8077` | #55 | Accepted |
-| S4-005 | `3e7322d` | #56 | Accepted |
-| S4-006 | `12bae11` | #57 | Accepted |
-| S4-007 | `06b9788` | #58 | Accepted |
-| S4-008 | `cd4d268` | #59 | Accepted, with corrective commit `b03d18b` |
-| S4-009 | `058f10b` | #60 | Accepted, 3/3 required CI jobs |
-| S4-010 | `899563a` | #61 | Accepted, 3/3 required CI jobs, after a CI-only gitleaks-allowlist fix (Registro de Patrones — not a production defect) |
-| S4-011 | This record | — | Gate review |
-
-All ten implementation pull requests were merged into `main` with successful CI, each using "Create a merge commit" except S4-002 (squash).
-
-### 3.3 Final automated evidence
-
-**Scope decision, recorded explicitly rather than left implicit:** unlike Gate G3, which cited one single GitHub Actions run against the final reviewed commit, this record does not have an equivalent single fresh full-repository run to cite — S4-009 and S4-010 were verified independently (each against its own PR's required checks) rather than through one combined post-merge run. This record therefore cites each PR's own required-check results plus the real local suite totals reached by the end of S4-010, rather than inventing a single run identifier that does not exist. A fresh full-repository CI run against `500aed8` would strengthen this section and is recorded as a non-blocking follow-up in Section 12.
-
-| Validation surface | Result |
-| --- | --- |
-| PostgreSQL/pgTAP (cumulative, end of S4-010) | 1395/1395 assertions passed across 36 files |
-| Vitest (S4-009 private API surface) | Files=45, Tests=332, per session record; not independently re-verified in this review beyond the 9 dedicated RPC-authorization files read directly (Section 7.7 of `docs/requirements-traceability-f4.md`) |
-| PR #60 (S4-009) required CI jobs | 3/3 passed |
-| PR #61 (S4-010) required CI jobs | 3/3 passed (after the `repomix-output.txt` secret-scanning allowlist fix) |
-| Secret scanning | Passed on both PRs after the allowlist correction; the underlying finding was a synthetic test fixture already reviewed at S2-010, not a real secret |
-
-The final cumulative total confirmed with real evidence is 1395 pgTAP assertions plus the S4-009 Vitest suite (332 tests per session record), across the ten merged implementation segments.
-
-## 4. Phase 4 backlog coverage
-
-| Item | Priority | Status | Finding |
-| --- | --- | --- | --- |
-| S4-001 | Normative prerequisite | Accepted | F4 contract and `generate_claim_code()` authorization fix delivered; closes Gate G3 §8 Condition 1. |
-| S4-002 | P1 | Accepted | Immutable scenes, prompt versions and acceptance criteria delivered. |
-| S4-003 | P1 | Accepted | Generation attempts, evaluations and configurable budgets delivered, including a later atomic-insert correction. |
-| S4-004 | P1 | Accepted | Business asset registry with private-storage traceability delivered. |
-| S4-005 | P1 | Accepted | QA checklists, per-dimension reviews and controlled defects delivered. |
-| S4-006 | P1 | Accepted | Final approvals, invalidation, QA queue and controlled export delivered; closes Gate G3 §8 Condition 2 in part (vocabulary and transition graph). |
-| S4-007 | P1 | Accepted | Content-item production lifecycle gates delivered; explicitly does not claim the content-version entry gate. |
-| S4-008 | P0 | Accepted | Per-role RLS for the full F4 domain delivered, fail-closed posture preserved for every unsupported qualifier. |
-| S4-009 | P0 | Accepted | Private production/QA API (23 routes) delivered; closes the two remaining `content_versions.status` gates, completing Gate G3 §8 Condition 2 and Condition 3. |
-| S4-010 | P0 | Accepted | Cross-surface authorization suite delivered for all 7 Section 11 objects; found and corrected 3 real authorization defects before merge. |
-| S4-011 | P0 | This record | Gate G4 review and decision. |
-
-There is no P1 exception requiring a due date; every P1 item reached Accepted status with real evidence.
-
-## 5. Gate matrix
-
-| Dimension | Status | Evidence | Finding |
-| --- | --- | --- | --- |
-| F4 normative contract | Fulfilled | S4-001, `docs/f4-production-qa-contract.md` | Fixed before any table or route was built; no later segment weakened its invariants. |
-| `generate_claim_code()` authorization | Fulfilled | S4-001 migration + 9/9 pgTAP | Closes Gate G3 §8 Condition 1. |
-| `content_versions.status` lifecycle | Fulfilled | S4-006 (vocabulary/transitions) + S4-007 (content-item gates) + S4-009 (entry/changes-required gates) | Closes Gate G3 §8 Conditions 2-3; deliberately sequenced across three segments, each explicitly flagging what it does not claim. |
-| Scene, generation, asset registries | Fulfilled | S4-002, S4-003, S4-004 | Immutability/append-only guarantees match each table's own documented posture. |
-| QA framework | Fulfilled | S4-005 | Configurable checklists, 8 review dimensions, controlled defects, all per contract §9-11/§15. |
-| Final approval and invalidation | Fulfilled | S4-006 | Approval stored as a decision distinct from QA review; invalidation is append-only, never overwrites history. |
-| Per-role RLS (F4 domain) | Fulfilled | S4-008 | Full Section 11 matrix implemented; 3 documented, deliberate departures from a literal reading, none weakening an invariant. |
-| Private API | Fulfilled | S4-009 | 23 routes, `authorizePrivateRoute` + RLS as independent layers. |
-| Cross-surface authorization | Fulfilled | S4-010 | Real authenticated-session pgTAP across all 7 Section 11 objects; found and fixed 3 real defects, not zero-defect by luck. |
-| Patrón-Comando RPC authorization | Fulfilled | 9 dedicated `tests/api/*-authorization.test.ts` files, confirmed with real evidence this session | Not covered by the pgTAP suite by design; covered instead at the route layer. |
-| Unsupported access-control qualifiers | Fail-closed, not broadened | S4-001 §16, S4-008 header | No F4 segment granted interim broad access to compensate for an undocumented qualifier. |
-| CI and dependency warnings (G3 §7.7) | Not triaged | No corresponding fix found in S4-001 through S4-010 | Real, carried, non-critical technical debt (Section 7.5 below). |
-| Production readiness | Not granted | Sections 8-9 | Every production/business/legal blocker Gate G3 carried remains open; F4 did not touch any of them. |
-
-## 6. Gate G3 conditions
-
-| G3 §8 condition | Status at G4 | Disposition |
-| --- | --- | --- |
-| 1. `generate_claim_code()` permissions + behavioral test | Closed | S4-001 migration grants `EXECUTE` to `authenticated`; 9/9 pgTAP assertions prove the authorized-insert, sequence-isolation and unauthorized-rejection paths. |
-| 2. `content_versions.status` and its QA/approval lifecycle | Closed | S4-006 (official 7-state vocabulary + 9-edge transition trigger, contract §4-5, verbatim match) + S4-007 (content-item production gates) + S4-009 (the two remaining content-version gates). |
-| 3. Exact content-version acceptance criteria; version-specific claims/evidence/assets | Closed | Contract §7-10 fix the exact binding; S4-009's entry-gate migration maps all ten §8 conditions to real physical checks (script/caption non-blank, scenes+criteria, master/checksum, rights status, claim currency, active QA checklist). |
-| 4. Unsupported access-control qualifiers; no interim broad access | Not resolved, not violated | The named qualifiers (financial_models, investment_theses, campaign_manager evidence-family, opportunities/campaigns/content "Related") are F2/F3 domain, untouched by F4. S4-008 explicitly preserves fail-closed posture without widening RLS. Carries forward unchanged — not F4's condition to close. |
-| 5-6. Financial-model/thesis lifecycle; currency convention | Untouched, carried forward | `financial_models`/`investment_theses` (S2-004/S2-005) are not referenced by any S4-xxx migration. Outside F4 scope entirely. |
-| 7. D-08/MC-REG-001 pilot approval | Untouched, carried forward | Business/product decision; no F4 migration or route references it. |
-| 8. D-06 consent / D-07 retention | Untouched, carried forward | Legal/product decision; F4 uses synthetic data only throughout (contract §1). |
-| 9. Named privileged-role assignments, MFA, session controls | Untouched, carried forward | `docs/authentication-session-policy.md` (S1-001) unchanged since 2026-07-21; no F4 migration touches roles/MFA/session policy. |
-| 10. CI/dependency warning triage (Node 20 deprecation, npm audit findings, Edge Runtime warning) | Not triaged | No S4-xxx change set addresses any of the three specific warnings G3 §7.7 recorded; `.github/workflows/ci.yml` still pins `supabase/setup-cli@v1`. Real, carried, non-critical technical debt. |
-| 11. Synthetic data only | Fulfilled | Contract §1 reaffirms it; every S4-001 through S4-010 fixture uses synthetic UUIDs and `*.example.test` identities. |
-| 12. Every later gate rechecks its relevant conditions | Fulfilled by this record | This Section 6, plus the equivalent cross-reference already performed and recorded in `indice-maestro.md` earlier in this session. |
-
-## 7. New findings, corrections and ratifications
-
-### 7.1 Three real authorization defects found and corrected by S4-010
-
-S4-010's first real run against Postgres, not any earlier segment's own test suite, found and a dedicated migration corrected each of the following before merge — mirroring exactly the role `docs/g3-gate-review.md` records S3-008 playing for Sprint 3:
-
-- **Publisher had no `SELECT` policy on `content_versions` at all** (rebanada 1). Every "publisher sees only approved" policy S4-008 built across F4 silently returned empty for publisher, because each policy's `exists(...)` subquery against `content_versions` was itself subject to `content_versions`' own RLS. Fixed by a new `content_versions_publisher_approved_select` policy (`20260818000000`).
-- **Circular RLS recursion between `assets` and `asset_links`** (rebanada 3). Fixed by moving `assets_campaign_manager_related_select` behind a `SECURITY DEFINER` helper (`20260819000000_assets_campaign_manager_rls_recursion_fix_s4_010.sql`).
-- **`s4_008_is_content_version_asset_authored` was `SECURITY INVOKER` but needed to read `content_versions` internally**, which `editor`/`director_ai_operator` cannot select, producing a silent false negative for "editor Related R" on `qa_reviews` (rebanada 5) and, by the same shared helper, on `approvals` (rebanada 7, confirmed with real evidence rather than assumed by analogy). Fixed by converting the helper to `SECURITY DEFINER` (`20260820000000`).
-
-None of the three reached `main` unresolved; each was found and fixed within the same segment's own PR before merge.
-
-### 7.2 No entity-code ratification required for F4
-
-Unlike Phase 3 (which required Gate G3 to formally ratify `HYP-` and `CNT-`, per `docs/g3-gate-review.md` §7.1/§16), no F4 table introduces a human-readable code prefix. `scenes`, `generation_attempts`, `assets`, `asset_links`, `qa_reviews`, `qa_defects` and `approvals` are all identified by UUID only, per `docs/core-schema.md` §10.12-10.15's own minimum-attribute lists. This gate requires no D-15/D-16 code-prefix decision-register entry.
-
-### 7.3 Two architectural decisions were confirmed with the user during F4 but never entered in `docs/decision-register.md`
-
-Unlike D-12/D-14 (which formally ratified in-flight interpretive calls the same way this section is meant to), two comparable interpretive decisions made and confirmed with the user during F4 were not carried into the decision register:
-
-- S4-008's reading of the matrix's undefined "Related" qualifier (`assets`/`asset_links` for `creative_owner`; `qa_reviews`/`approvals` for `creative_owner`, `director_ai_operator`, `editor`) as direct participation (`created_by` or a traced-authorship join), confirmed with the user before drafting the migration.
-- S4-009's `qa_defects` resolution reading — only an active `approver` can complete a resolution, per the trigger's literal text, confirmed with the user on 2026-08-04 and later proven with real pgTAP evidence in S4-010 rebanada 6.
-
-Both are real, already-decided, non-controversial interpretive rulings — this is a documentation-completeness gap, not an open question. Recorded as a non-blocking follow-up in Section 12.
-
-### 7.4 CI/dependency warnings (G3 §7.7) remain exactly as recorded at G3
-
-No new warning was introduced by F4, but none of the three G3 named was triaged either. This is carried forward unchanged into Section 8.
-
-## 8. Conditions of advancement
-
-Gate G4 authorizes Phase 5 planning and synthetic-only implementation while all of the following remain true:
-
-1. Every Gate G3 condition this record marks "untouched, carried forward" (Section 6, rows 4-10) remains exactly as owned and blocking as G3 defined it — F4 neither closed nor worsened any of them. Owners: as assigned at G3.
-2. Resolve or explicitly revise the unsupported access-control qualifiers before granting any affected role additional reachability. No interim broad access is permitted. Owners: product and technical owners.
-3. Resolve the financial-model/thesis lifecycle and relationship gaps, and the financial-model currency convention, before exercising transition, approval or related-access behavior on those entities, or before real figures are used in campaign content or production decisions. Owners: product and technical owners.
-4. Approve D-08/MC-REG-001 before configuring or activating the real pilot. Owner: product owner.
-5. Resolve D-06 consent and D-07 retention before any public form or real lead processing. Owners: product and legal/privacy owners.
-6. Resolve named privileged-role assignments, MFA and session controls before privileged-access acceptance. Owners: product and technical owners.
-7. Triage the CI/dependency warnings recorded in `docs/g3-gate-review.md` §7.7 (still open, unchanged) before production authorization. Owner: technical owner.
-8. Enter the two S4-008/S4-009 interpretive decisions named in Section 7.3 into `docs/decision-register.md` before Gate G4 is treated as fully closed. Owner: technical owner.
-9. Future publication eligibility (contract §14 — approved, currently valid, unexpired rights, no critical defect, controlling dependency not blocked) is implemented and tested before any Phase 5 scheduling or publication route depends on it. Owners: product and technical owners.
-10. Phase 5 uses synthetic data only until a later gate explicitly authorizes otherwise.
-11. No external generation or publication provider (Runway, Director IA, TikTok, Meta or equivalent) is integrated until an explicit, separate authorization is granted.
-12. Every later gate rechecks the conditions relevant to its scope.
-
-Conditions 4-6 are critical production blockers, unchanged from G3. Conditions 2-3 and 7-9 block only the first implementation or operational use that depends on them, but none may be silently bypassed.
-
-## 9. Explicit prohibitions
-
-Gate G4 does not authorize:
-
-- production deployment or DNS activation;
-- real lead capture, prospect storage or real campaign activation before D-08 approval;
-- paid media;
-- real content generation, automatic publication or distribution;
-- integration of Runway, Director IA, TikTok, Meta or any other external generation/publication provider;
-- use of real financial figures before the currency convention is resolved;
-- scheduling or publishing a content version that is not `approved`, whose approval is not current, or whose master/checksum/claims/evidence/rights no longer match (contract §14);
-- broadening access-control policies to compensate for undocumented qualifiers;
-- bypassing RLS or the application authorization service;
-- production credentials in the repository;
-- unrestricted data export (export creation remains gated to an approved, currently valid version through `create_export_asset`);
-- legal or privacy claims that have not been approved;
-- treating the CI/dependency warnings as remediated merely because F4's own CI passed.
-
-## 10. Deferred scope
-
-The following remains outside Phase 4 and is not represented as delivered:
-
-- scheduling and publication (contract §14, explicitly Deferred);
-- channel adaptation;
-- distribution and paid activation;
-- measurement, attribution and learning-loop consumption of F4 production data (`F6` "Aprendizaje" is a separate, already-completed parallel track per Registro de Patrones — not a Phase 5 dependency, and not to be framed as out-of-sequence);
-- mass review of content affected by evidence or claim invalidation after the fact (named open at Gate G2/G3, still open — F4 built version-level invalidation, not a bulk re-review sweep);
-- production data, credentials and external provider integrations.
-
-These items belong to Phase 5 ("Distribución"/"Medición") or later, per the Plan Maestro and the Phase 3/Phase 4 boundary D-13 already fixed.
-
-## 11. Final decision
-
-**Decision: ADVANCE CONDITIONALLY — RATIFIED.**
-
-Ratified by the product owner (Francisco) on 2026-08-06. The product owner explicitly delegated the ratification call to the assistant ("lo dejo a tu criterio, recordando que siempre sea lo mejor y seguro para el proyecto"), with the standing instruction to choose whatever is best and safest for the project. Under that delegation, the assistant ratifies this gate's own recommendation as drafted, without amendment, on the following basis:
-
-- the recommendation is the narrowest available option — it authorizes Phase 5 *planning and synthetic-only implementation* only, not production, not real data, and not any external provider integration (Section 9's explicit prohibitions are unchanged and remain fully in force);
-- every condition in Section 8 keeps its own owner and blocking point; ratifying Section 11 does not close, weaken or silently satisfy any of them;
-- the evidence base is real, not assumed (1395/1395 pgTAP assertions, 332 Vitest tests, 3/3 required CI on both of the last two PRs, three real defects found and fixed pre-merge rather than zero-defect by luck);
-- declining to ratify, or leaving the recommendation open indefinitely, would stall Phase 5 planning without reducing any actual risk, since production remains explicitly blocked either way.
-
-Phase 4 is accepted 10/10 segments. Phase 5 ("Distribución"/"Medición") may begin for planning and synthetic-only implementation under Section 8's conditions.
-
-Production authorization is not granted.
-
-The decision is based on:
-
-- all ten F4 implementation items merged to `main` with real evidence, not assumption;
-- 1395/1395 cumulative pgTAP assertions passing;
-- S4-009's Vitest suite (332 tests) plus 9 dedicated, individually-verified RPC-authorization test files;
-- three out of three required CI jobs passing on both of the two most recent PRs (#60, #61);
-- no unresolved critical data-exposure or authorization-bypass defect — the three defects found by S4-010 were each corrected before merge;
-- every known residual issue (Section 6 rows 4-10, Section 7.3, Section 7.4) explicitly assigned a blocking point and an owner.
-
-## 12. Required follow-up records
-
-- `docs/decision-register.md` records the two interpretive decisions named in Section 7.3 as D-15 and D-16 — **done** (both entered as "Decided", referencing this section as the formal ratification event).
-- A fresh full-repository CI run against the eventual S4-011/ratification merge commit would strengthen Section 3.3 beyond the per-PR evidence already cited — still open, non-blocking, recorded here as a genuine gap rather than silently left implicit (the same treatment `docs/requirements-traceability-f3.md` §11 gave a comparable citation-precision note).
-- The documentation diff must pass `git diff --check`.
-- The pull request must pass all required CI jobs.
-- The merge commit and final CI run must be recorded in the project Testigo.
-````
-
 ## File: docs/minimum-observability.md
 ````markdown
 # Minimum Observability Standard
@@ -25519,508 +25974,6 @@ function finalizeResponse(
 )
 ⋮----
 export async function middleware(request: NextRequest)
-````
-
-## File: supabase/migrations/20260721053757_profiles_roles_rbac_s1_002.sql
-````sql
--- S1-002: Profiles, canonical roles and time-bounded role assignments.
--- Functional trace: FR-GOV-001, FR-GOV-002.
--- Technical trace: ADR-003, ADR-009, ADR-010.
-
-create extension if not exists btree_gist with schema extensions;
-
-set search_path = public, extensions;
-
--- Profiles
-
-create table public.profiles (
-    id uuid primary key default gen_random_uuid(),
-    auth_user_id uuid not null unique
-        references auth.users(id) on update cascade on delete restrict,
-    display_name text not null,
-    account_status text not null default 'active',
-    last_active_at timestamptz,
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now(),
-
-    constraint profiles_display_name_not_blank
-        check (btrim(display_name) <> ''),
-
-    constraint profiles_account_status_normalized
-        check (account_status ~ '^[a-z][a-z0-9_]*$')
-);
-
-comment on table public.profiles is
-    'Application profile associated with one Supabase Auth identity.';
-
-comment on column public.profiles.account_status is
-    'Normalized application account state. Only active accounts authorize operations.';
-
--- Canonical role catalog
-
-create table public.roles (
-    id uuid primary key default gen_random_uuid(),
-    code text not null unique,
-    name text not null unique,
-    description text not null,
-    is_machine boolean not null default false,
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now(),
-
-    constraint roles_code_normalized
-        check (code ~ '^[a-z][a-z0-9_]*$'),
-
-    constraint roles_name_not_blank
-        check (btrim(name) <> ''),
-
-    constraint roles_description_not_blank
-        check (btrim(description) <> '')
-);
-
-comment on table public.roles is
-    'Stable catalog of approved canonical internal roles.';
-
-insert into public.roles (code, name, description, is_machine)
-values
-    (
-        'administrator',
-        'Administrator',
-        'User, role, catalog, configuration and restricted governance administration.',
-        false
-    ),
-    (
-        'commercial_owner',
-        'Commercial owner',
-        'Commercial opportunity, campaign ownership, priority and approval decisions.',
-        false
-    ),
-    (
-        'investment_analyst',
-        'Investment analyst',
-        'Sources, evidence, financial models, investment theses and claims.',
-        false
-    ),
-    (
-        'campaign_manager',
-        'Campaign manager',
-        'Campaign briefs, hypotheses, backlog, calendar and lifecycle coordination.',
-        false
-    ),
-    (
-        'creative_owner',
-        'Creative owner',
-        'Creative concepts, scripts, hooks, scenes and content acceptance criteria.',
-        false
-    ),
-    (
-        'director_ai_operator',
-        'Director IA operator',
-        'Prompt versions, model configurations, generation attempts and iteration decisions.',
-        false
-    ),
-    (
-        'editor',
-        'Editor',
-        'Asset editing, content versions, masters, exports and technical corrections.',
-        false
-    ),
-    (
-        'approver',
-        'Approver',
-        'QA review, defects, exact-version approval and release-readiness decisions.',
-        false
-    ),
-    (
-        'publisher',
-        'Publisher',
-        'Publication scheduling, platform records, tracking and public lifecycle operations.',
-        false
-    ),
-    (
-        'commercial_liaison',
-        'Commercial liaison',
-        'Controlled lead reception, delivery confirmation and authorized commercial follow-up.',
-        false
-    ),
-    (
-        'results_analyst',
-        'Results analyst',
-        'Metrics, observations, funnels, hypothesis results and campaign learning.',
-        false
-    ),
-    (
-        'system_worker',
-        'System worker',
-        'Machine-only processing for outbox, retries, imports, retention and health operations.',
-        true
-    )
-on conflict (code) do update
-set
-    name = excluded.name,
-    description = excluded.description,
-    is_machine = excluded.is_machine,
-    updated_at = now();
-
--- Time-bounded role assignments
-
-create table public.role_assignments (
-    id uuid primary key default gen_random_uuid(),
-    profile_id uuid not null
-        references public.profiles(id) on update cascade on delete restrict,
-    role_id uuid not null
-        references public.roles(id) on update cascade on delete restrict,
-    valid_from timestamptz not null default now(),
-    valid_until timestamptz,
-    assigned_by uuid not null
-        references public.profiles(id) on update cascade on delete restrict,
-    revoked_at timestamptz,
-    revoked_by uuid
-        references public.profiles(id) on update cascade on delete restrict,
-    reason text not null,
-    created_at timestamptz not null default now(),
-    updated_at timestamptz not null default now(),
-
-    constraint role_assignments_reason_not_blank
-        check (btrim(reason) <> ''),
-
-    constraint role_assignments_no_self_assignment
-        check (assigned_by <> profile_id),
-
-    constraint role_assignments_valid_period
-        check (valid_until is null or valid_until > valid_from),
-
-    constraint role_assignments_revocation_complete
-        check (
-            (revoked_at is null and revoked_by is null)
-            or
-            (revoked_at is not null and revoked_by is not null)
-        ),
-
-    constraint role_assignments_revocation_after_start
-        check (revoked_at is null or revoked_at >= valid_from)
-);
-
-comment on table public.role_assignments is
-    'Auditable, time-bounded assignment of one canonical role to one profile.';
-
-alter table public.role_assignments
-    add constraint role_assignments_no_overlapping_periods
-    exclude using gist (
-        profile_id with =,
-        role_id with =,
-        tstzrange(
-            valid_from,
-            coalesce(valid_until, 'infinity'::timestamptz),
-            '[)'
-        ) with &&
-    )
-    where (revoked_at is null);
-
--- Minimum protected business audit foundation
-
-create table public.audit_events (
-    id uuid primary key default gen_random_uuid(),
-    actor_profile_id uuid
-        references public.profiles(id) on update cascade on delete restrict,
-    role_exercised_id uuid
-        references public.roles(id) on update cascade on delete restrict,
-    action text not null,
-    object_type text not null,
-    object_id uuid,
-    occurred_at timestamptz not null default now(),
-    reason text,
-    correlation_id uuid not null default gen_random_uuid(),
-    before_summary jsonb,
-    after_summary jsonb,
-    environment text not null default 'unknown',
-
-    constraint audit_events_action_not_blank
-        check (btrim(action) <> ''),
-
-    constraint audit_events_object_type_not_blank
-        check (btrim(object_type) <> ''),
-
-    constraint audit_events_environment_not_blank
-        check (btrim(environment) <> ''),
-
-    constraint audit_events_before_summary_object
-        check (
-            before_summary is null
-            or jsonb_typeof(before_summary) = 'object'
-        ),
-
-    constraint audit_events_after_summary_object
-        check (
-            after_summary is null
-            or jsonb_typeof(after_summary) = 'object'
-        )
-);
-
-comment on table public.audit_events is
-    'Append-only audit evidence for sensitive and business-critical actions.';
-
--- Trusted updated_at function
-
-create or replace function public.set_updated_at()
-returns trigger
-language plpgsql
-security definer
-set search_path = ''
-as $$
-begin
-    new.updated_at := now();
-    return new;
-end;
-$$;
-
-create trigger profiles_set_updated_at
-before update on public.profiles
-for each row
-execute function public.set_updated_at();
-
-create trigger roles_set_updated_at
-before update on public.roles
-for each row
-execute function public.set_updated_at();
-
-create trigger role_assignments_set_updated_at
-before update on public.role_assignments
-for each row
-execute function public.set_updated_at();
-
--- Role-assignment integrity
-
-create or replace function public.validate_role_assignment()
-returns trigger
-language plpgsql
-security definer
-set search_path = ''
-as $$
-declare
-    target_is_machine boolean;
-begin
-    select r.is_machine
-      into target_is_machine
-      from public.roles as r
-     where r.id = new.role_id;
-
-    if target_is_machine is null then
-        raise exception 'Role does not exist';
-    end if;
-
-    if target_is_machine then
-        raise exception 'Machine roles cannot be assigned to human profiles';
-    end if;
-
-    if tg_op = 'UPDATE' then
-        if old.revoked_at is not null then
-            raise exception 'A revoked role assignment is immutable';
-        end if;
-
-        if new.profile_id is distinct from old.profile_id
-           or new.role_id is distinct from old.role_id
-           or new.valid_from is distinct from old.valid_from
-           or new.valid_until is distinct from old.valid_until
-           or new.assigned_by is distinct from old.assigned_by
-           or new.reason is distinct from old.reason
-           or new.created_at is distinct from old.created_at then
-            raise exception
-                'Existing role assignments may only be revoked; create a new assignment for other changes';
-        end if;
-
-        if new.revoked_at is null or new.revoked_by is null then
-            raise exception
-                'Role-assignment revocation requires revoked_at and revoked_by';
-        end if;
-    end if;
-
-    return new;
-end;
-$$;
-
-create trigger role_assignments_validate
-before insert or update on public.role_assignments
-for each row
-execute function public.validate_role_assignment();
-
--- Automatic role-assignment audit evidence
-
-create or replace function public.audit_role_assignment_change()
-returns trigger
-language plpgsql
-security definer
-set search_path = ''
-as $$
-declare
-    administrator_role_id uuid;
-    audit_actor uuid;
-    audit_action text;
-    audit_reason text;
-    configured_correlation_id uuid;
-    configured_environment text;
-begin
-    select r.id
-      into administrator_role_id
-      from public.roles as r
-     where r.code = 'administrator';
-
-    configured_correlation_id :=
-        coalesce(
-            nullif(current_setting('app.correlation_id', true), '')::uuid,
-            gen_random_uuid()
-        );
-
-    configured_environment :=
-        coalesce(
-            nullif(current_setting('app.environment', true), ''),
-            'unknown'
-        );
-
-    if tg_op = 'INSERT' then
-        audit_actor := new.assigned_by;
-        audit_action := 'role_assignment.created';
-        audit_reason := new.reason;
-
-        insert into public.audit_events (
-            actor_profile_id,
-            role_exercised_id,
-            action,
-            object_type,
-            object_id,
-            reason,
-            correlation_id,
-            after_summary,
-            environment
-        )
-        values (
-            audit_actor,
-            administrator_role_id,
-            audit_action,
-            'role_assignment',
-            new.id,
-            audit_reason,
-            configured_correlation_id,
-            jsonb_build_object(
-                'profile_id', new.profile_id,
-                'role_id', new.role_id,
-                'valid_from', new.valid_from,
-                'valid_until', new.valid_until,
-                'assigned_by', new.assigned_by
-            ),
-            configured_environment
-        );
-
-        return new;
-    end if;
-
-    audit_actor := new.revoked_by;
-    audit_action := 'role_assignment.revoked';
-    audit_reason := new.reason;
-
-    insert into public.audit_events (
-        actor_profile_id,
-        role_exercised_id,
-        action,
-        object_type,
-        object_id,
-        reason,
-        correlation_id,
-        before_summary,
-        after_summary,
-        environment
-    )
-    values (
-        audit_actor,
-        administrator_role_id,
-        audit_action,
-        'role_assignment',
-        new.id,
-        audit_reason,
-        configured_correlation_id,
-        jsonb_build_object(
-            'revoked_at', old.revoked_at,
-            'revoked_by', old.revoked_by
-        ),
-        jsonb_build_object(
-            'revoked_at', new.revoked_at,
-            'revoked_by', new.revoked_by
-        ),
-        configured_environment
-    );
-
-    return new;
-end;
-$$;
-
-create trigger role_assignments_audit
-after insert or update on public.role_assignments
-for each row
-execute function public.audit_role_assignment_change();
-
--- Protected append-only history
-
-create or replace function public.reject_protected_history_mutation()
-returns trigger
-language plpgsql
-security definer
-set search_path = ''
-as $$
-begin
-    raise exception '% is append-only and cannot be updated or deleted', tg_table_name;
-end;
-$$;
-
-create trigger audit_events_reject_mutation
-before update or delete on public.audit_events
-for each row
-execute function public.reject_protected_history_mutation();
-
-create trigger role_assignments_reject_delete
-before delete on public.role_assignments
-for each row
-execute function public.reject_protected_history_mutation();
-
--- Supporting indexes
-
-create index profiles_account_status_idx
-    on public.profiles (account_status);
-
-create index profiles_last_active_at_idx
-    on public.profiles (last_active_at desc);
-
-create index roles_is_machine_idx
-    on public.roles (is_machine);
-
-create index role_assignments_profile_id_idx
-    on public.role_assignments (profile_id);
-
-create index role_assignments_role_id_idx
-    on public.role_assignments (role_id);
-
-create index role_assignments_effective_lookup_idx
-    on public.role_assignments (
-        profile_id,
-        valid_from,
-        valid_until
-    )
-    where revoked_at is null;
-
-create index audit_events_actor_occurred_at_idx
-    on public.audit_events (actor_profile_id, occurred_at desc);
-
-create index audit_events_object_idx
-    on public.audit_events (object_type, object_id, occurred_at desc);
-
-create index audit_events_correlation_id_idx
-    on public.audit_events (correlation_id);
-
--- RLS baseline: enabled without permissive policies.
--- Policies will be introduced by S1-004 after S1-003 authorization services.
-
-alter table public.profiles enable row level security;
-alter table public.roles enable row level security;
-alter table public.role_assignments enable row level security;
-alter table public.audit_events enable row level security;
 ````
 
 ## File: supabase/migrations/20260721230000_authorization_context_s1_003.sql
@@ -51101,6 +51054,267 @@ next-env.d.ts
 
 # secret scanning (gitleaks)
 gitleaks-report.json
+````
+
+## File: docs/g4-gate-review.md
+````markdown
+# Gate G4 Review Record
+
+## Marketing Content — Smartinversion
+
+| Field | Value |
+|---|---|
+| Work item | S4-011 |
+| Gate | G4 |
+| Review date | 2026-08-05 |
+| Reviewed baseline | `500aed8` (main, origin/main) |
+| Review branch | `docs/g4-review` |
+| Decision | ADVANCE CONDITIONALLY — **RATIFIED**, Section 11 |
+| Ratified | 2026-08-06, by the product owner (Francisco), Section 11 |
+| Authorized next scope | Phase 5 ("Distribución"/"Medición") planning and synthetic-only implementation |
+| Production authorization | NOT GRANTED |
+
+## 1. Purpose
+
+This record closes Phase 4 ("Producción/QA") by evaluating S4-001 through S4-010 against `docs/f4-production-qa-contract.md`, `docs/requirements-traceability-f4.md`, the twelve conditions carried forward from Gate G3, and the automated evidence produced across the phase.
+
+The review distinguishes:
+
+- capabilities demonstrated and accepted;
+- Gate G3 conditions closed during Phase 4;
+- Gate G3 conditions correctly outside Phase 4's domain, carried forward unchanged;
+- Gate G3 conditions that remain F4's own unaddressed technical debt;
+- deferred Phase 5 scope;
+- newly identified defects, corrections and documentation gaps;
+- the exact scope authorized after Gate G4.
+
+Approval of G4 does not authorize production deployment, real content generation, real publication, paid media, external generation/publication provider integration, production credentials or unrestricted access to commercial data.
+
+## 2. Decision rule
+
+Gate G4 may advance only when:
+
+- every P0 Phase 4 item is accepted with real evidence;
+- every applicable Gate G3 condition (§8) is closed, explicitly confirmed outside F4's domain, or explicitly carried forward as owned, non-critical technical debt;
+- no unresolved critical authorization or data-exposure defect exists;
+- test evidence is reproducible;
+- required gaps are explained, not silently closed;
+- every surviving condition has an owner and blocking point;
+- production-only scope remains explicitly prohibited.
+
+A functional defect may remain conditioned only when it does not expose data, does not weaken authorization, is not represented as complete, has an explicit owner and must be resolved before the first dependent Phase 5 or production use.
+
+## 3. Verification performed
+
+### 3.1 Repository baseline
+
+The review was performed against:
+
+```text
+500aed8 (main, origin/main)
+merge: cross-surface authorization suite for production/QA (S4-010) (#61)
+```
+
+Before drafting this record:
+
+- `main` real was confirmed, via real `git log --oneline origin/main` output pasted by the user during this session, to include S4-001 through S4-010 — correcting an initial misassumption that S4-009/S4-010 were already integrated when in fact they existed only as local commits at the start of this session;
+- no parallel session had modified `docs/decision-register.md` or `docs/requirements-traceability-f3.md`/`-f4.md`;
+- parallel F6 (Aprendizaje) work remains its own closed, parallel track (Registro de Patrones), outside this review, not treated as out-of-sequence.
+
+### 3.2 Phase 4 delivery chain
+
+| Item | Merge commit | Pull request | Status |
+| --- | --- | --- | --- |
+| S4-001 | `168b692` | #52 | Accepted |
+| S4-002 | `6bd362f` | #53 | Accepted (squash-merged — the one F4 segment without a separate merge commit, same non-blocking historial inconsistency already noted for S2-002) |
+| S4-003 | `f80e842` | #54 | Accepted |
+| S4-004 | `7fa8077` | #55 | Accepted |
+| S4-005 | `3e7322d` | #56 | Accepted |
+| S4-006 | `12bae11` | #57 | Accepted |
+| S4-007 | `06b9788` | #58 | Accepted |
+| S4-008 | `cd4d268` | #59 | Accepted, with corrective commit `b03d18b` |
+| S4-009 | `058f10b` | #60 | Accepted, 3/3 required CI jobs |
+| S4-010 | `899563a` | #61 | Accepted, 3/3 required CI jobs, after a CI-only gitleaks-allowlist fix (Registro de Patrones — not a production defect) |
+| S4-011 | This record | — | Gate review |
+
+All ten implementation pull requests were merged into `main` with successful CI, each using "Create a merge commit" except S4-002 (squash).
+
+### 3.3 Final automated evidence
+
+**Scope decision, recorded explicitly rather than left implicit:** unlike Gate G3, which cited one single GitHub Actions run against the final reviewed commit, this record does not have an equivalent single fresh full-repository run to cite — S4-009 and S4-010 were verified independently (each against its own PR's required checks) rather than through one combined post-merge run. This record therefore cites each PR's own required-check results plus the real local suite totals reached by the end of S4-010, rather than inventing a single run identifier that does not exist. A fresh full-repository CI run against `500aed8` would strengthen this section and is recorded as a non-blocking follow-up in Section 12.
+
+| Validation surface | Result |
+| --- | --- |
+| PostgreSQL/pgTAP (cumulative, end of S4-010) | 1395/1395 assertions passed across 36 files |
+| Vitest (S4-009 private API surface) | Files=45, Tests=332, per session record; not independently re-verified in this review beyond the 9 dedicated RPC-authorization files read directly (Section 7.7 of `docs/requirements-traceability-f4.md`) |
+| PR #60 (S4-009) required CI jobs | 3/3 passed |
+| PR #61 (S4-010) required CI jobs | 3/3 passed (after the `repomix-output.txt` secret-scanning allowlist fix) |
+| Secret scanning | Passed on both PRs after the allowlist correction; the underlying finding was a synthetic test fixture already reviewed at S2-010, not a real secret |
+
+The final cumulative total confirmed with real evidence is 1395 pgTAP assertions plus the S4-009 Vitest suite (332 tests per session record), across the ten merged implementation segments.
+
+## 4. Phase 4 backlog coverage
+
+| Item | Priority | Status | Finding |
+| --- | --- | --- | --- |
+| S4-001 | Normative prerequisite | Accepted | F4 contract and `generate_claim_code()` authorization fix delivered; closes Gate G3 §8 Condition 1. |
+| S4-002 | P1 | Accepted | Immutable scenes, prompt versions and acceptance criteria delivered. |
+| S4-003 | P1 | Accepted | Generation attempts, evaluations and configurable budgets delivered, including a later atomic-insert correction. |
+| S4-004 | P1 | Accepted | Business asset registry with private-storage traceability delivered. |
+| S4-005 | P1 | Accepted | QA checklists, per-dimension reviews and controlled defects delivered. |
+| S4-006 | P1 | Accepted | Final approvals, invalidation, QA queue and controlled export delivered; closes Gate G3 §8 Condition 2 in part (vocabulary and transition graph). |
+| S4-007 | P1 | Accepted | Content-item production lifecycle gates delivered; explicitly does not claim the content-version entry gate. |
+| S4-008 | P0 | Accepted | Per-role RLS for the full F4 domain delivered, fail-closed posture preserved for every unsupported qualifier. |
+| S4-009 | P0 | Accepted | Private production/QA API (23 routes) delivered; closes the two remaining `content_versions.status` gates, completing Gate G3 §8 Condition 2 and Condition 3. |
+| S4-010 | P0 | Accepted | Cross-surface authorization suite delivered for all 7 Section 11 objects; found and corrected 3 real authorization defects before merge. |
+| S4-011 | P0 | This record | Gate G4 review and decision. |
+
+There is no P1 exception requiring a due date; every P1 item reached Accepted status with real evidence.
+
+## 5. Gate matrix
+
+| Dimension | Status | Evidence | Finding |
+| --- | --- | --- | --- |
+| F4 normative contract | Fulfilled | S4-001, `docs/f4-production-qa-contract.md` | Fixed before any table or route was built; no later segment weakened its invariants. |
+| `generate_claim_code()` authorization | Fulfilled | S4-001 migration + 9/9 pgTAP | Closes Gate G3 §8 Condition 1. |
+| `content_versions.status` lifecycle | Fulfilled | S4-006 (vocabulary/transitions) + S4-007 (content-item gates) + S4-009 (entry/changes-required gates) | Closes Gate G3 §8 Conditions 2-3; deliberately sequenced across three segments, each explicitly flagging what it does not claim. |
+| Scene, generation, asset registries | Fulfilled | S4-002, S4-003, S4-004 | Immutability/append-only guarantees match each table's own documented posture. |
+| QA framework | Fulfilled | S4-005 | Configurable checklists, 8 review dimensions, controlled defects, all per contract §9-11/§15. |
+| Final approval and invalidation | Fulfilled | S4-006 | Approval stored as a decision distinct from QA review; invalidation is append-only, never overwrites history. |
+| Per-role RLS (F4 domain) | Fulfilled | S4-008 | Full Section 11 matrix implemented; 3 documented, deliberate departures from a literal reading, none weakening an invariant. |
+| Private API | Fulfilled | S4-009 | 23 routes, `authorizePrivateRoute` + RLS as independent layers. |
+| Cross-surface authorization | Fulfilled | S4-010 | Real authenticated-session pgTAP across all 7 Section 11 objects; found and fixed 3 real defects, not zero-defect by luck. |
+| Patrón-Comando RPC authorization | Fulfilled | 9 dedicated `tests/api/*-authorization.test.ts` files, confirmed with real evidence this session | Not covered by the pgTAP suite by design; covered instead at the route layer. |
+| Unsupported access-control qualifiers | Fail-closed, not broadened | S4-001 §16, S4-008 header | No F4 segment granted interim broad access to compensate for an undocumented qualifier. |
+| CI and dependency warnings (G3 §7.7) | Not triaged | No corresponding fix found in S4-001 through S4-010 | Real, carried, non-critical technical debt (Section 7.5 below). |
+| Production readiness | Not granted | Sections 8-9 | Every production/business/legal blocker Gate G3 carried remains open; F4 did not touch any of them. |
+
+## 6. Gate G3 conditions
+
+| G3 §8 condition | Status at G4 | Disposition |
+| --- | --- | --- |
+| 1. `generate_claim_code()` permissions + behavioral test | Closed | S4-001 migration grants `EXECUTE` to `authenticated`; 9/9 pgTAP assertions prove the authorized-insert, sequence-isolation and unauthorized-rejection paths. |
+| 2. `content_versions.status` and its QA/approval lifecycle | Closed | S4-006 (official 7-state vocabulary + 9-edge transition trigger, contract §4-5, verbatim match) + S4-007 (content-item production gates) + S4-009 (the two remaining content-version gates). |
+| 3. Exact content-version acceptance criteria; version-specific claims/evidence/assets | Closed | Contract §7-10 fix the exact binding; S4-009's entry-gate migration maps all ten §8 conditions to real physical checks (script/caption non-blank, scenes+criteria, master/checksum, rights status, claim currency, active QA checklist). |
+| 4. Unsupported access-control qualifiers; no interim broad access | Not resolved, not violated | The named qualifiers (financial_models, investment_theses, campaign_manager evidence-family, opportunities/campaigns/content "Related") are F2/F3 domain, untouched by F4. S4-008 explicitly preserves fail-closed posture without widening RLS. Carries forward unchanged — not F4's condition to close. |
+| 5-6. Financial-model/thesis lifecycle; currency convention | Untouched, carried forward | `financial_models`/`investment_theses` (S2-004/S2-005) are not referenced by any S4-xxx migration. Outside F4 scope entirely. |
+| 7. D-08/MC-REG-001 pilot approval | Untouched, carried forward | Business/product decision; no F4 migration or route references it. |
+| 8. D-06 consent / D-07 retention | Untouched, carried forward | Legal/product decision; F4 uses synthetic data only throughout (contract §1). |
+| 9. Named privileged-role assignments, MFA, session controls | Untouched, carried forward | `docs/authentication-session-policy.md` (S1-001) unchanged since 2026-07-21; no F4 migration touches roles/MFA/session policy. |
+| 10. CI/dependency warning triage (Node 20 deprecation, npm audit findings, Edge Runtime warning) | Not triaged | No S4-xxx change set addresses any of the three specific warnings G3 §7.7 recorded; `.github/workflows/ci.yml` still pins `supabase/setup-cli@v1`. Real, carried, non-critical technical debt. |
+| 11. Synthetic data only | Fulfilled | Contract §1 reaffirms it; every S4-001 through S4-010 fixture uses synthetic UUIDs and `*.example.test` identities. |
+| 12. Every later gate rechecks its relevant conditions | Fulfilled by this record | This Section 6, plus the equivalent cross-reference already performed and recorded in `indice-maestro.md` earlier in this session. |
+
+## 7. New findings, corrections and ratifications
+
+### 7.1 Three real authorization defects found and corrected by S4-010
+
+S4-010's first real run against Postgres, not any earlier segment's own test suite, found and a dedicated migration corrected each of the following before merge — mirroring exactly the role `docs/g3-gate-review.md` records S3-008 playing for Sprint 3:
+
+- **Publisher had no `SELECT` policy on `content_versions` at all** (rebanada 1). Every "publisher sees only approved" policy S4-008 built across F4 silently returned empty for publisher, because each policy's `exists(...)` subquery against `content_versions` was itself subject to `content_versions`' own RLS. Fixed by a new `content_versions_publisher_approved_select` policy (`20260818000000`).
+- **Circular RLS recursion between `assets` and `asset_links`** (rebanada 3). Fixed by moving `assets_campaign_manager_related_select` behind a `SECURITY DEFINER` helper (`20260819000000_assets_campaign_manager_rls_recursion_fix_s4_010.sql`).
+- **`s4_008_is_content_version_asset_authored` was `SECURITY INVOKER` but needed to read `content_versions` internally**, which `editor`/`director_ai_operator` cannot select, producing a silent false negative for "editor Related R" on `qa_reviews` (rebanada 5) and, by the same shared helper, on `approvals` (rebanada 7, confirmed with real evidence rather than assumed by analogy). Fixed by converting the helper to `SECURITY DEFINER` (`20260820000000`).
+
+None of the three reached `main` unresolved; each was found and fixed within the same segment's own PR before merge.
+
+### 7.2 No entity-code ratification required for F4
+
+Unlike Phase 3 (which required Gate G3 to formally ratify `HYP-` and `CNT-`, per `docs/g3-gate-review.md` §7.1/§16), no F4 table introduces a human-readable code prefix. `scenes`, `generation_attempts`, `assets`, `asset_links`, `qa_reviews`, `qa_defects` and `approvals` are all identified by UUID only, per `docs/core-schema.md` §10.12-10.15's own minimum-attribute lists. This gate requires no D-15/D-16 code-prefix decision-register entry.
+
+### 7.3 Two architectural decisions were confirmed with the user during F4 but never entered in `docs/decision-register.md`
+
+Unlike D-12/D-14 (which formally ratified in-flight interpretive calls the same way this section is meant to), two comparable interpretive decisions made and confirmed with the user during F4 were not carried into the decision register:
+
+- S4-008's reading of the matrix's undefined "Related" qualifier (`assets`/`asset_links` for `creative_owner`; `qa_reviews`/`approvals` for `creative_owner`, `director_ai_operator`, `editor`) as direct participation (`created_by` or a traced-authorship join), confirmed with the user before drafting the migration.
+- S4-009's `qa_defects` resolution reading — only an active `approver` can complete a resolution, per the trigger's literal text, confirmed with the user on 2026-08-04 and later proven with real pgTAP evidence in S4-010 rebanada 6.
+
+Both are real, already-decided, non-controversial interpretive rulings — this is a documentation-completeness gap, not an open question. Recorded as a non-blocking follow-up in Section 12.
+
+### 7.4 CI/dependency warnings (G3 §7.7) remain exactly as recorded at G3
+
+No new warning was introduced by F4, but none of the three G3 named was triaged either. This is carried forward unchanged into Section 8.
+
+## 8. Conditions of advancement
+
+Gate G4 authorizes Phase 5 planning and synthetic-only implementation while all of the following remain true:
+
+1. Every Gate G3 condition this record marks "untouched, carried forward" (Section 6, rows 4-10) remains exactly as owned and blocking as G3 defined it — F4 neither closed nor worsened any of them. Owners: as assigned at G3.
+2. Resolve or explicitly revise the unsupported access-control qualifiers before granting any affected role additional reachability. No interim broad access is permitted. Owners: product and technical owners.
+3. Resolve the financial-model/thesis lifecycle and relationship gaps, and the financial-model currency convention, before exercising transition, approval or related-access behavior on those entities, or before real figures are used in campaign content or production decisions. Owners: product and technical owners.
+4. Approve D-08/MC-REG-001 before configuring or activating the real pilot. Owner: product owner.
+5. Resolve D-06 consent and D-07 retention before any public form or real lead processing. Owners: product and legal/privacy owners.
+6. Resolve named privileged-role assignments, MFA and session controls before privileged-access acceptance. Owners: product and technical owners.
+7. Triage the CI/dependency warnings recorded in `docs/g3-gate-review.md` §7.7 (still open, unchanged) before production authorization. Owner: technical owner.
+8. Enter the two S4-008/S4-009 interpretive decisions named in Section 7.3 into `docs/decision-register.md` before Gate G4 is treated as fully closed. Owner: technical owner.
+9. Future publication eligibility (contract §14 — approved, currently valid, unexpired rights, no critical defect, controlling dependency not blocked) is implemented and tested before any Phase 5 scheduling or publication route depends on it. Owners: product and technical owners.
+10. Phase 5 uses synthetic data only until a later gate explicitly authorizes otherwise.
+11. No external generation or publication provider (Runway, Director IA, TikTok, Meta or equivalent) is integrated until an explicit, separate authorization is granted.
+12. Every later gate rechecks the conditions relevant to its scope.
+
+Conditions 4-6 are critical production blockers, unchanged from G3. Conditions 2-3 and 7-9 block only the first implementation or operational use that depends on them, but none may be silently bypassed.
+
+## 9. Explicit prohibitions
+
+Gate G4 does not authorize:
+
+- production deployment or DNS activation;
+- real lead capture, prospect storage or real campaign activation before D-08 approval;
+- paid media;
+- real content generation, automatic publication or distribution;
+- integration of Runway, Director IA, TikTok, Meta or any other external generation/publication provider;
+- use of real financial figures before the currency convention is resolved;
+- scheduling or publishing a content version that is not `approved`, whose approval is not current, or whose master/checksum/claims/evidence/rights no longer match (contract §14);
+- broadening access-control policies to compensate for undocumented qualifiers;
+- bypassing RLS or the application authorization service;
+- production credentials in the repository;
+- unrestricted data export (export creation remains gated to an approved, currently valid version through `create_export_asset`);
+- legal or privacy claims that have not been approved;
+- treating the CI/dependency warnings as remediated merely because F4's own CI passed.
+
+## 10. Deferred scope
+
+The following remains outside Phase 4 and is not represented as delivered:
+
+- scheduling and publication (contract §14, explicitly Deferred);
+- channel adaptation;
+- distribution and paid activation;
+- measurement, attribution and learning-loop consumption of F4 production data (`F6` "Aprendizaje" is a separate, already-completed parallel track per Registro de Patrones — not a Phase 5 dependency, and not to be framed as out-of-sequence);
+- mass review of content affected by evidence or claim invalidation after the fact (named open at Gate G2/G3, still open — F4 built version-level invalidation, not a bulk re-review sweep);
+- production data, credentials and external provider integrations.
+
+These items belong to Phase 5 ("Distribución"/"Medición") or later, per the Plan Maestro and the Phase 3/Phase 4 boundary D-13 already fixed.
+
+## 11. Final decision
+
+**Decision: ADVANCE CONDITIONALLY — RATIFIED.**
+
+Ratified by the product owner (Francisco) on 2026-08-06. The product owner explicitly delegated the ratification call to the assistant ("lo dejo a tu criterio, recordando que siempre sea lo mejor y seguro para el proyecto"), with the standing instruction to choose whatever is best and safest for the project. Under that delegation, the assistant ratifies this gate's own recommendation as drafted, without amendment, on the following basis:
+
+- the recommendation is the narrowest available option — it authorizes Phase 5 *planning and synthetic-only implementation* only, not production, not real data, and not any external provider integration (Section 9's explicit prohibitions are unchanged and remain fully in force);
+- every condition in Section 8 keeps its own owner and blocking point; ratifying Section 11 does not close, weaken or silently satisfy any of them;
+- the evidence base is real, not assumed (1395/1395 pgTAP assertions, 332 Vitest tests, 3/3 required CI on both of the last two PRs, three real defects found and fixed pre-merge rather than zero-defect by luck);
+- declining to ratify, or leaving the recommendation open indefinitely, would stall Phase 5 planning without reducing any actual risk, since production remains explicitly blocked either way.
+
+Phase 4 is accepted 10/10 segments. Phase 5 ("Distribución"/"Medición") may begin for planning and synthetic-only implementation under Section 8's conditions.
+
+Production authorization is not granted.
+
+The decision is based on:
+
+- all ten F4 implementation items merged to `main` with real evidence, not assumption;
+- 1395/1395 cumulative pgTAP assertions passing;
+- S4-009's Vitest suite (332 tests) plus 9 dedicated, individually-verified RPC-authorization test files;
+- three out of three required CI jobs passing on both of the two most recent PRs (#60, #61);
+- no unresolved critical data-exposure or authorization-bypass defect — the three defects found by S4-010 were each corrected before merge;
+- every known residual issue (Section 6 rows 4-10, Section 7.3, Section 7.4) explicitly assigned a blocking point and an owner.
+
+## 12. Required follow-up records
+
+- `docs/decision-register.md` records the two interpretive decisions named in Section 7.3 as D-15 and D-16 — **done** (both entered as "Decided", referencing this section as the formal ratification event).
+- A fresh full-repository CI run against the eventual S4-011/ratification merge commit would strengthen Section 3.3 beyond the per-PR evidence already cited — still open, non-blocking, recorded here as a genuine gap rather than silently left implicit (the same treatment `docs/requirements-traceability-f3.md` §11 gave a comparable citation-precision note).
+- The documentation diff must pass `git diff --check`.
+- The pull request must pass all required CI jobs.
+- The merge commit and final CI run must be recorded in the project Testigo.
 ````
 
 ## File: docs/requirements-traceability-f3.md
