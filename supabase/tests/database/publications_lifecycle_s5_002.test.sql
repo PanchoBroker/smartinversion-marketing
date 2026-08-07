@@ -77,8 +77,8 @@ select ok(
 );
 
 select ok(
-    not has_table_privilege('authenticated', 'public.publications', 'SELECT'),
-    'Authenticated has no privilege on publications yet (S5-006 adds per-role RLS)'
+    has_table_privilege('authenticated', 'public.publications', 'SELECT'),
+    'Authenticated can select publications (S5-006 iteration 1 added per-role RLS; obsolete by design, see Registro de Patrones)'
 );
 
 select ok(

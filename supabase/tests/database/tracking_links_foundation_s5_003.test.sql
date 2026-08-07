@@ -46,8 +46,8 @@ select ok(
 );
 
 select ok(
-    not has_table_privilege('authenticated', 'public.tracking_links', 'SELECT'),
-    'Authenticated has no privilege on tracking_links yet (S5-006 adds per-role RLS)'
+    has_table_privilege('authenticated', 'public.tracking_links', 'SELECT'),
+    'Authenticated can select tracking_links (S5-006 iteration 1 added per-role RLS; obsolete by design, see Registro de Patrones)'
 );
 
 select ok(
