@@ -324,3 +324,25 @@ Documento permanente y acumulativo de la Metodología Oficial de Trabajo 4.0. Vi
 **Mecánica:** si el insert que establece la clave de idempotencia ocurre DESPUÉS de crear las filas relacionadas (ej. insertar el lead y el consentimiento antes de insertar `form_submissions`), una petición concurrente perdedora puede alcanzar a crear esas filas relacionadas antes de chocar contra el `unique` constraint -- dejando filas huérfanas (un lead sin submission, o un submission fantasma) que ninguna transacción revierte automáticamente, porque cada peticion corre en su propia transacción completa. La secuencia correcta es: `insert ... on conflict (idempotency_key) do nothing returning id` PRIMERO (esto sí es atómico y serializa correctamente peticiones concurrentes -- Postgres bloquea al segundo insert hasta que el primero confirma o revierte), y solo si esa reserva tuvo éxito (`id` no nulo), proceder a las escrituras dependientes. Si la reserva falla (fila ya existe), comparar el hash del payload contra el ya guardado para decidir replay vs. conflicto, sin tocar ninguna otra tabla.
 
 **Caso real:** S5-004 iteración 5 (2026-08-07), `public.create_submission` -- reserva `restricted.form_submissions` con `validation_status = 'processing'` antes de tocar `restricted.leads`/`restricted.lead_consents`, y solo después de resolver el lead y la clasificación hace el `update` final que deja `validation_status = 'accepted'`.
+
+---
+
+## Patrón: un contrato que describe un "evento"/catálogo no implica automáticamente una tabla física nueva -- revisar `core-schema.md` y `minimum-observability.md` antes de asumir
+
+**Cuándo aplica:** cualquier sección de un contrato de dominio (`docs/*-contract.md`) que defina un catálogo de eventos, propiedades o registros sin decir explícitamente "tabla" ni aparecer en el inventario de entidades de `docs/core-schema.md`.
+
+**Mecánica:** `docs/core-schema.md` (Secciones 6.1-6.8) es el inventario de entidades aprobado -- si una entidad no está ahí (ni siquiera marcada como pendiente, a diferencia de `lead_attribution`/`lead_status_events`, que sí aparecen listadas aunque diferidas), crear una tabla nueva para ella es esquema no documentado, no una implementación del contrato existente. `docs/minimum-observability.md` §6 ya distingue dos mecanismos de persistencia con propósitos distintos: "Logs" (eventos estructurados, catálogo de dominio e integración, no queryable como negocio) vs. "Audit" (tabla `audit_events` persistida, consultable). Cuando un contrato describe un catálogo de eventos con "Authority: Client/server/Derived" y propiedades explícitamente no-sensibles (nunca PII), la lectura por defecto -- salvo que el inventario de `core-schema.md` diga lo contrario -- es que encaja en "Logs", no en una tabla nueva.
+
+**Señal para decidir:** ¿la entidad aparece en el inventario de `core-schema.md` (aunque sea como P2/diferida)? Si no aparece en absoluto, cruzar la pregunta con el usuario antes de codear una tabla nueva -- no asumir que "el contrato lo describe" equivale a "el contrato pide una tabla".
+
+**Caso real:** S5-004 iteración 6 (2026-08-07), `POST /api/v1/public/events` (contrato §25) -- ninguna tabla de eventos aparece en `core-schema.md`. Confirmado con el product owner: solo logs estructurados (`logInfo`), sin tabla nueva, sin migración, sin cliente `service_role` en esta ruta.
+
+---
+
+## Patrón: catálogo de eventos con columna "Authority" -> filtrar qué puede enviar un cliente anónimo por esa misma columna, no aceptar el catálogo completo
+
+**Cuándo aplica:** cualquier endpoint público que reciba un `event_type`/tipo de evento de un catálogo documentado con una columna de autoridad (quién puede/debe originar cada valor).
+
+**Mecánica:** cuando el contrato ya distingue "Client or server" de "Server" (sin "or client") o "Derived" para distintos valores del mismo catálogo, esa columna ES la regla de aceptación -- un actor anónimo nunca debe poder aseverar un valor cuya autoridad documentada excluye al cliente, porque eso permite contaminar métricas (falsos "recibido"/"rechazado"/"abandonado" fabricados por cualquiera). Rechazar esos valores con el mismo código que un valor de catálogo desconocido (`catalog_value_invalid`), no aceptar y marcar como no confiable -- aceptar el valor en absoluto ya es la falla.
+
+**Caso real:** S5-004 iteración 6 (2026-08-07), `POST /api/v1/public/events` -- de los 6 valores de la Sección 25.1, solo 3 tienen autoridad "Client or server"/"Server preferred" (`form_started`, `form_validation_failed`, `form_submission_attempted`); los otros 3 (`form_submission_received`/`rejected`, autoridad "Server"; `form_abandoned`, autoridad "Derived") se rechazan con `422 catalog_value_invalid` si un cliente los envía.
