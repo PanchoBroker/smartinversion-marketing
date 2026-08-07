@@ -252,3 +252,15 @@ Documento permanente y acumulativo de la Metodología Oficial de Trabajo 4.0. Vi
 **Mecánica:** `docs/f5-distribution-measurement-contract.md` §6 dice explícitamente, para `form_sessions`, que su "contrato mínimo es exactamente lo que S0-015 §16.2/§17.1 ya especifica" — la sección de prosa normativa (reglas de sesión, propiedades de atribución permitidas) es la fuente física de columnas, no una tabla de columnas formal como la que sí existe para `publications`/`leads`/etc. Segunda mitad del patrón: cuando una de esas columnas es "un token opaco resoluble por el servidor" (`tracking_token`, S0-015 §17.1) y ya existe una tabla foundation cuyo propósito es exactamente ser ese token opaco (`tracking_links.token`, S5-003), la columna correcta es una FK resuelta a esa tabla (`tracking_link_id`), no una columna de texto crudo duplicando el valor — evita mantener dos verdades sobre el mismo token y hereda gratis las reglas de validez/supersede que esa tabla ya construyó.
 
 **Caso real:** S5-004 iteración 1 (2026-08-07), `public.form_sessions.tracking_link_id → public.tracking_links(id)`, migración `supabase/migrations/20260827000000_form_sessions_foundation_s5_004.sql`.
+
+---
+
+## Patrón: "Checking for the ability to merge automatically..." colgado en la UI de GitHub tras un incidente reciente de Actions → probar `gh pr merge` por línea de comandos en vez de esperar indefinidamente el botón web
+
+**Cuándo aplica:** los 3 checks requeridos de un PR ya están en verde, pero el botón "Merge pull request" de la UI web queda deshabilitado con el spinner "Checking for the ability to merge automatically... Hang in there while we check the branch's status." sin resolverse, algo que no había ocurrido en ninguna PR anterior del proyecto.
+
+**Mecánica:** verificado contra https://www.githubstatus.com: no había ningún incidente activo declarado ("All Systems Operational"), pero sí un incidente grande de Actions resuelto pocas horas antes ese mismo día (2026-08-07, 02:04 UTC), cuyo propio reporte final admite explícitamente que "some workflow-triggering events, including push and pull request events, were not processed during the incident and cannot be replayed automatically". El cómputo de mergeability de la UI web puede quedar con cola atrasada por ese mismo tipo de evento no reprocesado, sin que el status page lo liste como incidente separado. No es algo que se resuelva tocando `.github/workflows/*` ni `.gitleaks.toml` — no es un problema del repo (mismo criterio que el patrón de verificar githubstatus.com antes de tocar CI).
+
+**Fix:** `gh pr merge <rama-o-numero> --merge --delete-branch` desde la terminal del usuario (nunca desde la shell del asistente, Regla dura de este mismo Registro) — el CLI de GitHub resolvió el merge de inmediato sin pasar por el mismo camino de cómputo que tenía atascada la UI web.
+
+**Caso real:** S5-004 iteración 2 (2026-08-07), PR #78 `feat/f5-004-campaigns-public-slug`, merge commit `5434509`.

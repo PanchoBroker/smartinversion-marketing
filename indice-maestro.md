@@ -135,6 +135,12 @@ Pendiente (no bloqueante, mismo segmento S5-004): decidir la siguiente iteració
 
 Pendiente: PR de cierre documental separada (este archivo + Registro de Patrones + regenerar `repomix-output.txt`), mismo patrón usado para S5-002 iteración 2c.
 
+**S5-004 — Iteración 2/N CERRADA e integrada a `main` con evidencia real (2026-08-07).** PR #78 `feat/f5-004-campaigns-public-slug` → `main`, mergeado vía `gh pr merge --merge --delete-branch` (merge commit `5434509`, 3/3 checks requeridos en verde, rama borrada local y remota). Contenido: `supabase/migrations/20260828000000_campaigns_public_slug_s5_004.sql` — `public.campaigns.slug` (nullable, único, formato `^[a-z0-9]+(-[a-z0-9]+)*$`, 3-80 caracteres), primera pieza física de las 4 rutas públicas de `docs/preliminary-form-contract.md` §14. Distinto de `campaigns.code` (S1-008, formato fijo `CAM-<año>-<secuencia>`, no puede representar un slug de marketing como `mc-reg-001`). Asignación manual, sin generador automático. Sin cambios de RLS/grant — `campaigns` ya otorga `update` a `authenticated` desde S3-007/S4-008. Sin columna "es pública" nueva: `slug is not null` + `state_transition_subjects.current_state = 'active'` ya expresa lo que el contrato §15 llama "an active and public campaign" + `supabase/tests/database/campaigns_public_slug_s5_004.test.sql` (11 aserciones pgTAP, PASS). Validado por el usuario: `npx supabase db reset && npx supabase test db` → `Files=44, Tests=1538, Result: PASS` (1527+11, exacto, sin regresiones).
+
+Deliberadamente fuera de alcance de esta iteración: la ruta `GET /api/v1/public/campaigns/{slug}` en sí, cualquier RPC de asignación de slug, y los catálogos de la respuesta (income_ranges/income_modes/consent notice) — ninguno de los tres aparece en el inventario de entidades de `docs/core-schema.md`; tratados como config de aplicación versionada, no tablas nuevas, salvo decisión en contrario.
+
+Pendiente (no bloqueante, mismo segmento S5-004): la ruta pública misma y las 3 rutas restantes de §14, más el PR de cierre documental de esta iteración (este archivo + Registro de Patrones + `npx repomix`).
+
 ## Bloque C — Contrato / negocio
 
 | Pieza | Estado | Referencia |
