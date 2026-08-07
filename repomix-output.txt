@@ -302,6 +302,7 @@ supabase/
     20260828000000_campaigns_public_slug_s5_004.sql
     20260829000000_public_submissions_atomic_write_s5_004.sql
     20260830000000_lead_delivery_outbox_foundation_s5_005.sql
+    20260831000000_lead_delivery_creation_wiring_s5_005.sql
   templates/
     invite.html
   tests/
@@ -332,6 +333,7 @@ supabase/
       generation_attempts_evaluations_budgets_s4_003.test.sql
       immutable_business_audit_trail_s1_006.test.sql
       investment_theses_s2_005.test.sql
+      lead_delivery_creation_wiring_s5_005.test.sql
       lead_delivery_outbox_foundation_s5_005.test.sql
       non_secret_settings_catalog_foundation_s1_009.test.sql
       opportunity_candidate_projects_s3_001.test.sql
@@ -10575,6 +10577,58 @@ import {
 export async function GET(request: Request)
 ````
 
+## File: src/app/api/v1/approvals/[id]/invalidate/route.ts
+````typescript
+import {
+  apiError,
+  apiJson,
+  databaseErrorResponse,
+} from "@/lib/api/errors";
+import { authorizePrivateRoute } from "@/lib/api/private-route";
+import { logInfo } from "@/lib/observability/logger";
+import { APP_ENVIRONMENT } from "@/lib/observability/runtime";
+⋮----
+// S4-009: approval invalidation command (contract Section 13, approved ->
+// invalidated). Runs through the server-held service-role client into
+// public.invalidate_approval, the last S4-006 RPC of the approvals family.
+// Unlike the five content-version-keyed commands (submit-qa, reject-qa,
+// promote-to-approval-pending, approve, reject-approval), this RPC is keyed
+// by `p_approval_id`, not `p_content_version_id` -- it looks up the
+// approval row, derives the associated content_version internally, and
+// mutates both (inserts an append-only approval_invalidations row, flips
+// content_versions.status to 'invalidated'). It lives under its own
+// `approvals/[id]/invalidate` resource rather than nested under
+// content-versions, matching docs/access-control-matrix.md Section 11
+// (`approvals` is its own object row) and the fact that `approvals/` had
+// no route at all before this one. No expected_version (same posture as
+// the rest of this RPC family), and every raised exception (S4_006_*
+// context/role/not-found/already-invalidated/not-approved) carries a plain
+// SQLSTATE (42501 / 23503 / 23514), so the existing generic
+// databaseErrorResponse mapping is sufficient -- no pre-validation of the
+// p_reason_code regex is added here, mirroring how p_reason's own blank
+// check is left to the RPC's context guard on the rest of this family.
+//
+// Authorization: invalidate_approval requires the same active `approver`
+// role (s4_005_role_is_approver) as the rest of the S4-006 content_version
+// family, confirmed by direct inspection of the function body. Per
+// docs/access-control-matrix.md Section 11, approver is the only role with
+// any create/approve cell (`L R C A`) on `approvals` -- every other role is
+// read-only (`Related R`) or has no cell at all. Reuses the existing
+// content_version.approve action -- no authorization.ts change needed.
+⋮----
+interface InvalidateBody {
+  reason: string;
+  reasonCode: string;
+}
+⋮----
+function parseInvalidateBody(value: unknown): InvalidateBody | null
+⋮----
+export async function POST(
+  request: Request,
+  routeContext: { params: Promise<{ id: string }> },
+): Promise<Response>
+````
+
 ## File: src/app/api/v1/campaign-briefs/route.ts
 ````typescript
 import {
@@ -10709,6 +10763,92 @@ import { logInfo } from "@/lib/observability/logger";
 export async function POST(request: Request): Promise<Response>
 ````
 
+## File: src/app/api/v1/content-versions/[id]/approve/route.ts
+````typescript
+import {
+  apiError,
+  apiJson,
+  databaseErrorResponse,
+} from "@/lib/api/errors";
+import { authorizePrivateRoute } from "@/lib/api/private-route";
+import { logInfo } from "@/lib/observability/logger";
+import { APP_ENVIRONMENT } from "@/lib/observability/runtime";
+⋮----
+// S4-009: final approval command (contract Section 12, approval_pending ->
+// approved). Runs through the server-held service-role client into
+// public.approve_content_version, the S4-006 RPC gated by the same
+// approver-only check as promote-to-approval-pending/reject-qa
+// (s4_005_role_is_approver), plus its own defensive re-checks (QA
+// completeness, master/checksum binding) before inserting the immutable
+// `approvals` row and transitioning the version. No expected_version (same
+// posture as the rest of this RPC family). Every raised exception
+// (S4_006_* context/role/not-found plus the three
+// CONTENT_VERSION_NOT_APPROVABLE_* status guards) carries a plain SQLSTATE
+// (42501 / 23503 / 23514), so the existing generic databaseErrorResponse
+// mapping is sufficient.
+//
+// Authorization: same approver-only gate as promote-to-approval-pending and
+// reject-qa, so this route reuses the existing content_version.approve
+// action -- no authorization.ts change needed.
+//
+// Unlike the other content_version commands, this RPC takes an optional
+// `p_comments` and returns the new approvals row's id (not void) --
+// `comments` is validated here the same way the DB's own
+// approvals_comments_not_blank check constraint would (null, or non-blank
+// after trim) so a bad value gets a clean 400 instead of a raw constraint
+// violation.
+⋮----
+interface ApproveBody {
+  reason: string;
+  comments: string | null;
+}
+⋮----
+function parseApproveBody(value: unknown): ApproveBody | null
+⋮----
+export async function POST(
+  request: Request,
+  routeContext: { params: Promise<{ id: string }> },
+): Promise<Response>
+````
+
+## File: src/app/api/v1/content-versions/[id]/archive/route.ts
+````typescript
+import {
+  apiError,
+  apiJson,
+  databaseErrorResponse,
+} from "@/lib/api/errors";
+import { authorizePrivateRoute } from "@/lib/api/private-route";
+import { logInfo } from "@/lib/observability/logger";
+import { APP_ENVIRONMENT } from "@/lib/observability/runtime";
+⋮----
+// S4-009: archival command (S4-006, {approved|changes_required|invalidated}
+// -> archived). Runs through the server-held service-role client into
+// public.archive_content_version, structural mirror of reject-approval's
+// route: content_version-keyed, only p_reason, returns void. Same posture
+// as the rest of this RPC family: no expected_version, and every raised
+// exception (S4_006_* context/role/not-found/status) carries a plain
+// SQLSTATE (42501 / 23503 / 23514), so the existing generic
+// databaseErrorResponse mapping is sufficient.
+//
+// Authorization: archive_content_version requires the same active
+// `approver` role (s4_005_role_is_approver) as the rest of the S4-006
+// family, confirmed by direct inspection of the function body. Reuses the
+// existing content_version.approve action -- no authorization.ts change
+// needed.
+⋮----
+interface ArchiveBody {
+  reason: string;
+}
+⋮----
+function parseArchiveBody(value: unknown): ArchiveBody | null
+⋮----
+export async function POST(
+  request: Request,
+  routeContext: { params: Promise<{ id: string }> },
+): Promise<Response>
+````
+
 ## File: src/app/api/v1/content-versions/[id]/promote-to-approval-pending/route.ts
 ````typescript
 import {
@@ -10742,6 +10882,47 @@ interface PromoteToApprovalPendingBody {
 function parsePromoteToApprovalPendingBody(
   value: unknown,
 ): PromoteToApprovalPendingBody | null
+⋮----
+export async function POST(
+  request: Request,
+  routeContext: { params: Promise<{ id: string }> },
+): Promise<Response>
+````
+
+## File: src/app/api/v1/content-versions/[id]/reject-approval/route.ts
+````typescript
+import {
+  apiError,
+  apiJson,
+  databaseErrorResponse,
+} from "@/lib/api/errors";
+import { authorizePrivateRoute } from "@/lib/api/private-route";
+import { logInfo } from "@/lib/observability/logger";
+import { APP_ENVIRONMENT } from "@/lib/observability/runtime";
+⋮----
+// S4-009: approval rejection command (contract Section 12, approval_pending
+// -> changes_required). Runs through the server-held service-role client
+// into public.reject_content_version_approval, the S4-006 RPC one step
+// later in the machine than reject_content_version_qa (qa_pending ->
+// changes_required) -- both land on the same "changes_required" status but
+// from different source states, and this RPC creates no `approvals` row
+// (only approval_pending -> approved does, per contract Section 12). Same
+// shape as the rest of this route family: no expected_version, and every
+// raised exception (S4_006_* context/role/not-found/status) carries a
+// plain SQLSTATE (42501 / 23503 / 23514), so the existing generic
+// databaseErrorResponse mapping is sufficient.
+//
+// Authorization: reject_content_version_approval requires the same active
+// `approver` role (s4_005_role_is_approver) as promote-to-approval-pending/
+// approve/reject-qa, confirmed by direct inspection of the function body
+// before writing this route. Reuses the existing content_version.approve
+// action -- no authorization.ts change needed.
+⋮----
+interface RejectApprovalBody {
+  reason: string;
+}
+⋮----
+function parseRejectApprovalBody(value: unknown): RejectApprovalBody | null
 ⋮----
 export async function POST(
   request: Request,
@@ -45527,6 +45708,43 @@ $synthetic_seed$;
 commit;
 ````
 
+## File: tests/api/approval-invalidate-authorization.test.ts
+````typescript
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { APP_ENVIRONMENT } from "@/lib/observability/runtime";
+⋮----
+import { POST as invalidateApproval } from "@/app/api/v1/approvals/[id]/invalidate/route";
+⋮----
+// S4-009: behavioral Private API coverage for the approval invalidation
+// command endpoint, mirroring tests/api/content-version-reject-approval-
+// authorization.test.ts's harness. This RPC (public.invalidate_approval)
+// does not go through the S1-007 execute_state_transition engine and
+// exposes no expected_version. Unlike the content-version-keyed routes,
+// this one is keyed by an approval id (p_approval_id), lives under its own
+// approvals/[id]/invalidate resource, and takes an extra required
+// `reason_code` field the RPC itself normalizes and pattern-checks. Same
+// content_version.approve (approver-only) gate as the rest of the S4-006
+// family, confirmed by direct inspection of the RPC body.
+⋮----
+function assignment(roleCode: string)
+⋮----
+function fakeUserClient(user:
+⋮----
+function fakeServiceClient(options: {
+  profile: { id: string; account_status: string } | null;
+  assignments: unknown[];
+  role: { id: string } | null;
+  rpcResult: { data: unknown; error: { code?: string; message: string } | null };
+})
+⋮----
+function invalidateRequest(body: Record<string, unknown> = {
+  reason: "S4-009 fixture approval invalidation",
+  reason_code: "checksum_changed",
+})
+⋮----
+function routeContext()
+````
+
 ## File: tests/api/campaign-command-authorization.test.ts
 ````typescript
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -45620,6 +45838,75 @@ function approveRequest()
 function routeContext()
 ````
 
+## File: tests/api/content-version-approve-authorization.test.ts
+````typescript
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { APP_ENVIRONMENT } from "@/lib/observability/runtime";
+⋮----
+import { POST as approve } from "@/app/api/v1/content-versions/[id]/approve/route";
+⋮----
+// S4-009: behavioral Private API coverage for the final-approval command
+// endpoint, mirroring tests/api/content-version-promote-to-approval-
+// pending-authorization.test.ts's harness. This RPC (public.
+// approve_content_version, S4-006) does not go through the S1-007
+// execute_state_transition engine and exposes no expected_version. Same
+// approver-only gate as promote-to-approval-pending/reject-qa
+// (content_version.approve), reused rather than duplicated. Unlike the
+// rest of the family, this RPC takes an optional `comments` and returns
+// the new approvals row's id, and has three distinct 23514 status guards
+// (wrong status, QA-incomplete, master-incomplete), all covered below.
+⋮----
+function assignment(roleCode: string)
+⋮----
+function fakeUserClient(user:
+⋮----
+function fakeServiceClient(options: {
+  profile: { id: string; account_status: string } | null;
+  assignments: unknown[];
+  role: { id: string } | null;
+  rpcResult: { data: unknown; error: { code?: string; message: string } | null };
+})
+⋮----
+function approveRequest(body: Record<string, unknown> = {
+  reason: "S4-009 fixture final approval",
+})
+⋮----
+function routeContext()
+````
+
+## File: tests/api/content-version-archive-authorization.test.ts
+````typescript
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { APP_ENVIRONMENT } from "@/lib/observability/runtime";
+⋮----
+import { POST as archive } from "@/app/api/v1/content-versions/[id]/archive/route";
+⋮----
+// S4-009: behavioral Private API coverage for the archival command
+// endpoint, mirroring tests/api/content-version-reject-approval-
+// authorization.test.ts's harness. This RPC (public.
+// archive_content_version) does not go through the S1-007
+// execute_state_transition engine and exposes no expected_version. Same
+// content_version.approve (approver-only) gate as the rest of the S4-006
+// family, confirmed by direct inspection of the RPC body.
+⋮----
+function assignment(roleCode: string)
+⋮----
+function fakeUserClient(user:
+⋮----
+function fakeServiceClient(options: {
+  profile: { id: string; account_status: string } | null;
+  assignments: unknown[];
+  role: { id: string } | null;
+  rpcResult: { data: unknown; error: { code?: string; message: string } | null };
+})
+⋮----
+function archiveRequest(body: Record<string, unknown> = {
+  reason: "S4-009 fixture archival",
+})
+⋮----
+function routeContext()
+````
+
 ## File: tests/api/content-version-promote-to-approval-pending-authorization.test.ts
 ````typescript
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -45650,6 +45937,39 @@ function fakeServiceClient(options: {
 ⋮----
 function promoteRequest(body: Record<string, unknown> = {
   reason: "S4-009 fixture QA-queue promotion",
+})
+⋮----
+function routeContext()
+````
+
+## File: tests/api/content-version-reject-approval-authorization.test.ts
+````typescript
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { APP_ENVIRONMENT } from "@/lib/observability/runtime";
+⋮----
+import { POST as rejectApproval } from "@/app/api/v1/content-versions/[id]/reject-approval/route";
+⋮----
+// S4-009: behavioral Private API coverage for the approval rejection
+// command endpoint, mirroring tests/api/content-version-reject-qa-
+// authorization.test.ts's harness. This RPC (public.
+// reject_content_version_approval) does not go through the S1-007
+// execute_state_transition engine and exposes no expected_version. Same
+// content_version.approve (approver-only) gate as reject-qa/promote/
+// approve, confirmed by direct inspection of the RPC body.
+⋮----
+function assignment(roleCode: string)
+⋮----
+function fakeUserClient(user:
+⋮----
+function fakeServiceClient(options: {
+  profile: { id: string; account_status: string } | null;
+  assignments: unknown[];
+  role: { id: string } | null;
+  rpcResult: { data: unknown; error: { code?: string; message: string } | null };
+})
+⋮----
+function rejectApprovalRequest(body: Record<string, unknown> = {
+  reason: "S4-009 fixture approval rejection",
 })
 ⋮----
 function routeContext()
@@ -59813,58 +60133,6 @@ As of this document:
 | Production authorization | Not granted |
 ````
 
-## File: src/app/api/v1/approvals/[id]/invalidate/route.ts
-````typescript
-import {
-  apiError,
-  apiJson,
-  databaseErrorResponse,
-} from "@/lib/api/errors";
-import { authorizePrivateRoute } from "@/lib/api/private-route";
-import { logInfo } from "@/lib/observability/logger";
-import { APP_ENVIRONMENT } from "@/lib/observability/runtime";
-⋮----
-// S4-009: approval invalidation command (contract Section 13, approved ->
-// invalidated). Runs through the server-held service-role client into
-// public.invalidate_approval, the last S4-006 RPC of the approvals family.
-// Unlike the five content-version-keyed commands (submit-qa, reject-qa,
-// promote-to-approval-pending, approve, reject-approval), this RPC is keyed
-// by `p_approval_id`, not `p_content_version_id` -- it looks up the
-// approval row, derives the associated content_version internally, and
-// mutates both (inserts an append-only approval_invalidations row, flips
-// content_versions.status to 'invalidated'). It lives under its own
-// `approvals/[id]/invalidate` resource rather than nested under
-// content-versions, matching docs/access-control-matrix.md Section 11
-// (`approvals` is its own object row) and the fact that `approvals/` had
-// no route at all before this one. No expected_version (same posture as
-// the rest of this RPC family), and every raised exception (S4_006_*
-// context/role/not-found/already-invalidated/not-approved) carries a plain
-// SQLSTATE (42501 / 23503 / 23514), so the existing generic
-// databaseErrorResponse mapping is sufficient -- no pre-validation of the
-// p_reason_code regex is added here, mirroring how p_reason's own blank
-// check is left to the RPC's context guard on the rest of this family.
-//
-// Authorization: invalidate_approval requires the same active `approver`
-// role (s4_005_role_is_approver) as the rest of the S4-006 content_version
-// family, confirmed by direct inspection of the function body. Per
-// docs/access-control-matrix.md Section 11, approver is the only role with
-// any create/approve cell (`L R C A`) on `approvals` -- every other role is
-// read-only (`Related R`) or has no cell at all. Reuses the existing
-// content_version.approve action -- no authorization.ts change needed.
-⋮----
-interface InvalidateBody {
-  reason: string;
-  reasonCode: string;
-}
-⋮----
-function parseInvalidateBody(value: unknown): InvalidateBody | null
-⋮----
-export async function POST(
-  request: Request,
-  routeContext: { params: Promise<{ id: string }> },
-): Promise<Response>
-````
-
 ## File: src/app/api/v1/asset-links/route.ts
 ````typescript
 import {
@@ -59942,92 +60210,6 @@ import { logInfo } from "@/lib/observability/logger";
 export async function POST(request: Request): Promise<Response>
 ````
 
-## File: src/app/api/v1/content-versions/[id]/approve/route.ts
-````typescript
-import {
-  apiError,
-  apiJson,
-  databaseErrorResponse,
-} from "@/lib/api/errors";
-import { authorizePrivateRoute } from "@/lib/api/private-route";
-import { logInfo } from "@/lib/observability/logger";
-import { APP_ENVIRONMENT } from "@/lib/observability/runtime";
-⋮----
-// S4-009: final approval command (contract Section 12, approval_pending ->
-// approved). Runs through the server-held service-role client into
-// public.approve_content_version, the S4-006 RPC gated by the same
-// approver-only check as promote-to-approval-pending/reject-qa
-// (s4_005_role_is_approver), plus its own defensive re-checks (QA
-// completeness, master/checksum binding) before inserting the immutable
-// `approvals` row and transitioning the version. No expected_version (same
-// posture as the rest of this RPC family). Every raised exception
-// (S4_006_* context/role/not-found plus the three
-// CONTENT_VERSION_NOT_APPROVABLE_* status guards) carries a plain SQLSTATE
-// (42501 / 23503 / 23514), so the existing generic databaseErrorResponse
-// mapping is sufficient.
-//
-// Authorization: same approver-only gate as promote-to-approval-pending and
-// reject-qa, so this route reuses the existing content_version.approve
-// action -- no authorization.ts change needed.
-//
-// Unlike the other content_version commands, this RPC takes an optional
-// `p_comments` and returns the new approvals row's id (not void) --
-// `comments` is validated here the same way the DB's own
-// approvals_comments_not_blank check constraint would (null, or non-blank
-// after trim) so a bad value gets a clean 400 instead of a raw constraint
-// violation.
-⋮----
-interface ApproveBody {
-  reason: string;
-  comments: string | null;
-}
-⋮----
-function parseApproveBody(value: unknown): ApproveBody | null
-⋮----
-export async function POST(
-  request: Request,
-  routeContext: { params: Promise<{ id: string }> },
-): Promise<Response>
-````
-
-## File: src/app/api/v1/content-versions/[id]/archive/route.ts
-````typescript
-import {
-  apiError,
-  apiJson,
-  databaseErrorResponse,
-} from "@/lib/api/errors";
-import { authorizePrivateRoute } from "@/lib/api/private-route";
-import { logInfo } from "@/lib/observability/logger";
-import { APP_ENVIRONMENT } from "@/lib/observability/runtime";
-⋮----
-// S4-009: archival command (S4-006, {approved|changes_required|invalidated}
-// -> archived). Runs through the server-held service-role client into
-// public.archive_content_version, structural mirror of reject-approval's
-// route: content_version-keyed, only p_reason, returns void. Same posture
-// as the rest of this RPC family: no expected_version, and every raised
-// exception (S4_006_* context/role/not-found/status) carries a plain
-// SQLSTATE (42501 / 23503 / 23514), so the existing generic
-// databaseErrorResponse mapping is sufficient.
-//
-// Authorization: archive_content_version requires the same active
-// `approver` role (s4_005_role_is_approver) as the rest of the S4-006
-// family, confirmed by direct inspection of the function body. Reuses the
-// existing content_version.approve action -- no authorization.ts change
-// needed.
-⋮----
-interface ArchiveBody {
-  reason: string;
-}
-⋮----
-function parseArchiveBody(value: unknown): ArchiveBody | null
-⋮----
-export async function POST(
-  request: Request,
-  routeContext: { params: Promise<{ id: string }> },
-): Promise<Response>
-````
-
 ## File: src/app/api/v1/content-versions/[id]/export-assets/route.ts
 ````typescript
 import {
@@ -60073,47 +60255,6 @@ interface CreateExportAssetBody {
 function parseCreateExportAssetBody(
   value: unknown,
 ): CreateExportAssetBody | null
-⋮----
-export async function POST(
-  request: Request,
-  routeContext: { params: Promise<{ id: string }> },
-): Promise<Response>
-````
-
-## File: src/app/api/v1/content-versions/[id]/reject-approval/route.ts
-````typescript
-import {
-  apiError,
-  apiJson,
-  databaseErrorResponse,
-} from "@/lib/api/errors";
-import { authorizePrivateRoute } from "@/lib/api/private-route";
-import { logInfo } from "@/lib/observability/logger";
-import { APP_ENVIRONMENT } from "@/lib/observability/runtime";
-⋮----
-// S4-009: approval rejection command (contract Section 12, approval_pending
-// -> changes_required). Runs through the server-held service-role client
-// into public.reject_content_version_approval, the S4-006 RPC one step
-// later in the machine than reject_content_version_qa (qa_pending ->
-// changes_required) -- both land on the same "changes_required" status but
-// from different source states, and this RPC creates no `approvals` row
-// (only approval_pending -> approved does, per contract Section 12). Same
-// shape as the rest of this route family: no expected_version, and every
-// raised exception (S4_006_* context/role/not-found/status) carries a
-// plain SQLSTATE (42501 / 23503 / 23514), so the existing generic
-// databaseErrorResponse mapping is sufficient.
-//
-// Authorization: reject_content_version_approval requires the same active
-// `approver` role (s4_005_role_is_approver) as promote-to-approval-pending/
-// approve/reject-qa, confirmed by direct inspection of the function body
-// before writing this route. Reuses the existing content_version.approve
-// action -- no authorization.ts change needed.
-⋮----
-interface RejectApprovalBody {
-  reason: string;
-}
-⋮----
-function parseRejectApprovalBody(value: unknown): RejectApprovalBody | null
 ⋮----
 export async function POST(
   request: Request,
@@ -63591,6 +63732,340 @@ execute function restricted.lead_deliveries_validate_status_transition();
 commit;
 ````
 
+## File: supabase/migrations/20260831000000_lead_delivery_creation_wiring_s5_005.sql
+````sql
+-- S5-005 (iteration 2/N): wires `public.create_submission` (S5-004
+-- iteration 5) to atomically create a `restricted.lead_deliveries` row
+-- and its corresponding `public.outbox_events` row whenever a submission
+-- is newly classified `prefiltered`, per docs/lead-delivery-contract.md
+-- Section 8 ("create the logical lead_delivery; create the corresponding
+-- outbox event; commit all local records atomically") and Section 10
+-- (delivery-trigger conditions).
+--
+-- Same function signature as S5-004 iteration 5 -- `create or replace
+-- function` with an unchanged parameter list, so no grant/revoke
+-- statements are needed again and the route layer
+-- (src/app/api/v1/public/submissions/route.ts) requires no change at
+-- all; this iteration is entirely inside the RPC body.
+--
+-- Scope of this iteration only:
+--   - Delivery creation wired into the existing prefiltered-classification
+--     branch of create_submission.
+--   - The duplicate-delivery guard (Section 11: "the same delivery
+--     version and destination already has an active or confirmed
+--     delivery" MUST NOT trigger a new one) -- a second, distinct
+--     submission from a contact that already has a pending/processing/
+--     confirmed/retry_scheduled delivery to the same destination creates
+--     no second delivery row.
+--
+-- Deliberately NOT in this iteration (left for later S5-005 work):
+--   - The background worker/adapter that claims the outbox event and
+--     performs any external effect -- still no destination type is
+--     selected (Section 59), so no external call can happen regardless.
+--   - A `delivery_configurations` table or any other physical
+--     destination-configuration mechanism (Section 19) -- this iteration
+--     hardcodes exactly one synthetic destination, documented below.
+--   - Re-versioning a delivery after a `failed`/`dead_letter`/`cancelled`
+--     outcome (Section 17) -- this iteration's duplicate guard only
+--     blocks a second delivery while an existing one is still
+--     active/confirmed; once that delivery reaches a terminal-negative
+--     state, a later distinct submission is free to create a fresh one
+--     (no `delivery_version` column exists yet to distinguish "retry of
+--     the same package" from "a new package" the way Section 17
+--     eventually requires -- flagged as a real, documented gap for
+--     whichever iteration adds delivery-version tracking).
+--
+-- Design decisions made in this iteration, documented rather than
+-- silently assumed (Rule 9, pensamiento critico):
+--   - Destination is hardcoded to `destination_type = 'synthetic_sink'`,
+--     `destination_reference = 'synthetic-destination-001'` -- the exact
+--     values `supabase/seed.sql` already uses for its own synthetic
+--     `lead_deliveries` fixtures. No destination-configuration table
+--     exists (Section 19 describes one only as a "logical" concept, and
+--     no approved document lists it in docs/core-schema.md's entity
+--     inventory) and Section 59 blocks "Initial production destination
+--     type" until "before delivery implementation" -- building a
+--     multi-destination selection mechanism now would design against a
+--     decision that has not been made. A single hardcoded synthetic
+--     destination satisfies Section 4.4's "Authorized synthetic tests"
+--     requirements exactly (synthetic destination, isolated from
+--     commercial metrics, no real personal data, no external side
+--     effect -- there is no adapter/worker yet, so no external call can
+--     occur regardless).
+--   - Delivery creation is NOT additionally gated on
+--     `restricted.form_submissions.is_test` (which is unconditionally
+--     `true` today, D-06/D-07 unresolved). Section 10's "the lead is not
+--     marked as test" refers to the lead-delivery contract's own `test`
+--     *classification* value (Section 4.4) -- a business-level "this
+--     submission must never trigger delivery even in a synthetic
+--     environment" signal -- not this project's system-wide synthetic-
+--     data flag. `create_submission`'s classification (Section 12 of the
+--     form contract) only ever produces `prefiltered`/`early`, never
+--     `test` (documented in that function's own S5-004 iteration 5
+--     header) -- gating on `is_test` here would make delivery creation
+--     permanently unreachable in the only environment this project is
+--     currently authorized to operate in (Gate G4: synthetic-only),
+--     which defeats the purpose of building this iteration at all.
+--   - `delivery_version` is not a physical column (S1-010 never added
+--     one to `restricted.lead_deliveries`, and docs/core-schema.md
+--     Section 10.20 does not list it) -- the idempotency key literally
+--     embeds `v1` (docs/lead-delivery-contract.md Section 25's own
+--     format, `lead_delivery:<lead_delivery_id>:v<delivery_version>:
+--     <destination_id>`) as a fixed value rather than a column read,
+--     since every delivery created by this iteration is definitionally
+--     version 1 (no re-versioning mechanism exists yet).
+--   - The outbox event's `correlation_id` is a freshly generated
+--     `gen_random_uuid()` stored inside the jsonb `payload`, not threaded
+--     through from the originating HTTP request's own correlation id.
+--     Section 14 requires an event envelope correlation_id for tracing,
+--     but threading the real request-level id through would require
+--     adding a new parameter to `create_submission` (and re-granting
+--     execute on the new signature) for a value no consumer reads yet --
+--     no worker exists to join logs across both today. Flagged here for
+--     whichever iteration builds the worker and actually needs end-to-
+--     end tracing.
+--   - The outbox payload's `campaign_code` is resolved from
+--     `form_sessions.campaign_id -> campaigns.code` (already available
+--     from the session lookup this function already performs) as the
+--     "safe campaign reference" Section 21 lists as a SHOULD, using the
+--     same business code Section 23's own conceptual example shows
+--     (`"campaign_code": "MC-REG-001"`) -- not `campaigns.slug` (S5-004
+--     iteration 2, the public-facing routing identifier).
+--   - The active/confirmed-delivery duplicate guard queries
+--     `restricted.lead_deliveries` directly inside the function
+--     (`security definer`, same posture as every other table this
+--     function already touches) rather than adding a new unique
+--     constraint -- a database-level uniqueness rule would need to
+--     encode "active or confirmed, but not failed/dead_letter/cancelled"
+--     as a partial unique index; a plain existence check inside the
+--     already-atomic transaction is simpler and sufficient while only
+--     one destination exists.
+
+begin;
+
+create or replace function public.create_submission(
+    p_form_session_id uuid,
+    p_client_submission_id uuid,
+    p_name_original text,
+    p_name_normalized text,
+    p_phone_original text,
+    p_phone_normalized text,
+    p_email_original text,
+    p_email_normalized text,
+    p_income_range_code text,
+    p_income_mode text,
+    p_income_threshold_met boolean,
+    p_intent_declared boolean,
+    p_consent_notice_version text,
+    p_consent_notice_text_hash text,
+    p_payload_hash text
+)
+returns table (
+    outcome text,
+    form_submission_id uuid,
+    classification_result text
+)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+    v_session_id uuid;
+    v_session_expires_at timestamptz;
+    v_session_consent_notice_version text;
+    v_campaign_id uuid;
+    v_campaign_code text;
+    v_idempotency_key text;
+    v_reserved_id uuid;
+    v_existing_id uuid;
+    v_existing_payload_hash text;
+    v_existing_classification text;
+    v_classification text;
+    v_lead_id uuid;
+    v_has_active_delivery boolean;
+    v_lead_delivery_id uuid;
+    v_delivery_idempotency_key text;
+begin
+    select fs.id, fs.expires_at, fs.consent_notice_version, fs.campaign_id
+    into v_session_id, v_session_expires_at, v_session_consent_notice_version, v_campaign_id
+    from public.form_sessions as fs
+    where fs.id = p_form_session_id;
+
+    -- Section 23's non-enumeration rule ("Public errors MUST NOT reveal
+    -- whether ... the session was previously used") -- not-found and
+    -- expired both map to the same public form_unavailable outcome at
+    -- the route layer, so both raise distinctly here only for
+    -- observability, never for a distinguishable public response.
+    if v_session_id is null then
+        raise exception 'SUBMISSION_SESSION_NOT_FOUND' using errcode = '23503';
+    end if;
+
+    if v_session_expires_at <= now() then
+        raise exception 'SUBMISSION_SESSION_EXPIRED' using errcode = '23514';
+    end if;
+
+    if v_session_consent_notice_version <> p_consent_notice_version then
+        raise exception 'SUBMISSION_CONSENT_VERSION_STALE' using errcode = '23514';
+    end if;
+
+    v_idempotency_key := p_form_session_id::text || ':' || p_client_submission_id::text;
+
+    insert into restricted.form_submissions (
+        form_session_id, idempotency_key, payload_hash,
+        validation_status, is_test
+    )
+    values (
+        p_form_session_id, v_idempotency_key, p_payload_hash,
+        'processing', true
+    )
+    on conflict (idempotency_key) do nothing
+    returning id into v_reserved_id;
+
+    if v_reserved_id is null then
+        select fsub.id, fsub.payload_hash, fsub.classification_result
+        into v_existing_id, v_existing_payload_hash, v_existing_classification
+        from restricted.form_submissions as fsub
+        where fsub.idempotency_key = v_idempotency_key;
+
+        if v_existing_payload_hash = p_payload_hash then
+            return query select 'replayed'::text, v_existing_id, v_existing_classification;
+            return;
+        else
+            raise exception 'SUBMISSION_IDEMPOTENCY_CONFLICT' using errcode = '23514';
+        end if;
+    end if;
+
+    v_classification := case
+        when p_intent_declared
+             and p_income_mode in ('individual', 'combined')
+             and p_income_threshold_met
+        then 'prefiltered'
+        else 'early'
+    end;
+
+    select l.id
+    into v_lead_id
+    from restricted.leads as l
+    where l.email_normalized = p_email_normalized
+       or l.phone_normalized = p_phone_normalized
+    order by l.first_received_at asc
+    limit 1;
+
+    if v_lead_id is null then
+        insert into restricted.leads (
+            name_original, name_normalized,
+            email_original, email_normalized,
+            phone_original, phone_normalized,
+            income_range_code, income_mode,
+            intent_declared, classification, status
+        )
+        values (
+            p_name_original, p_name_normalized,
+            p_email_original, p_email_normalized,
+            p_phone_original, p_phone_normalized,
+            p_income_range_code, p_income_mode,
+            p_intent_declared, v_classification, 'new'
+        )
+        returning id into v_lead_id;
+    else
+        update restricted.leads
+        set income_range_code = p_income_range_code,
+            income_mode = p_income_mode,
+            intent_declared = p_intent_declared,
+            classification = v_classification,
+            version = version + 1,
+            updated_at = now()
+        where id = v_lead_id;
+    end if;
+
+    update restricted.form_submissions
+    set validation_status = 'accepted',
+        classification_result = v_classification,
+        lead_id = v_lead_id,
+        updated_at = now()
+    where id = v_reserved_id;
+
+    insert into restricted.lead_consents (
+        lead_id, form_submission_id, consent_type,
+        notice_version, notice_text_hash, accepted
+    )
+    values (
+        v_lead_id, v_reserved_id, 'contact_and_processing',
+        p_consent_notice_version, p_consent_notice_text_hash, true
+    );
+
+    -- ---------------------------------------------------------------
+    -- Delivery creation (docs/lead-delivery-contract.md Sections 8/10).
+    -- See this migration's header for why is_test does not gate this.
+    -- ---------------------------------------------------------------
+
+    if v_classification = 'prefiltered' then
+        select exists (
+            select 1
+            from restricted.lead_deliveries as ld
+            where ld.lead_id = v_lead_id
+              and ld.destination_type = 'synthetic_sink'
+              and ld.status in ('pending', 'processing', 'confirmed', 'retry_scheduled')
+        )
+        into v_has_active_delivery;
+
+        if not v_has_active_delivery then
+            select c.code
+            into v_campaign_code
+            from public.campaigns as c
+            where c.id = v_campaign_id;
+
+            v_lead_delivery_id := gen_random_uuid();
+            v_delivery_idempotency_key :=
+                'lead_delivery:' || v_lead_delivery_id::text || ':v1:synthetic_sink';
+
+            insert into restricted.lead_deliveries (
+                id, lead_id, destination_type, destination_reference,
+                idempotency_key
+            )
+            values (
+                v_lead_delivery_id, v_lead_id, 'synthetic_sink',
+                'synthetic-destination-001', v_delivery_idempotency_key
+            );
+
+            insert into public.outbox_events (
+                event_type, aggregate_type, aggregate_id,
+                payload, idempotency_key
+            )
+            values (
+                'lead.delivery_requested', 'lead_delivery', v_lead_delivery_id,
+                jsonb_build_object(
+                    'event_type', 'lead.delivery_requested',
+                    'event_version', 1,
+                    'aggregate_type', 'lead_delivery',
+                    'lead_delivery_id', v_lead_delivery_id,
+                    'lead_id', v_lead_id,
+                    'delivery_version', 1,
+                    'destination_id', 'synthetic_sink',
+                    'correlation_id', gen_random_uuid(),
+                    'payload', jsonb_build_object(
+                        'eligibility', 'prefiltered',
+                        'campaign_code', v_campaign_code
+                    )
+                ),
+                v_delivery_idempotency_key
+            );
+        end if;
+    end if;
+
+    return query select 'new'::text, v_reserved_id, v_classification;
+end;
+$$;
+
+comment on function public.create_submission(
+    uuid, uuid, text, text, text, text, text, text, text, text,
+    boolean, boolean, text, text, text
+) is
+    'S5-004/S5-005: atomic accept path for POST /api/v1/public/submissions (docs/preliminary-form-contract.md Sections 12/18-21/28), now also creating a lead_delivery + outbox_event atomically when the submission is newly classified prefiltered and no active/confirmed delivery already exists for the same lead+destination (docs/lead-delivery-contract.md Sections 8/10/11, S5-005 iteration 2). SECURITY DEFINER only to reach restricted.form_submissions for the idempotency-replay SELECT that service_role''s own grant deliberately excludes -- no actor/role check, same anonymous posture as public.form_sessions. Never sets is_test=false (see S5-004 iteration 5''s own header, D-06/D-07). EXECUTE granted to service_role only (unchanged signature, grant persists from S5-004 iteration 5).';
+
+commit;
+````
+
 ## File: supabase/tests/database/campaigns_public_slug_s5_004.test.sql
 ````sql
 -- S5-004 (iteration 2/N): behavioral coverage for `public.campaigns.slug`
@@ -65895,6 +66370,331 @@ select throws_ok(
     '23514',
     'scene_generation_budget_decisions rows are append-only',
     'A budget decision cannot be deleted'
+);
+
+select * from finish();
+
+rollback;
+````
+
+## File: supabase/tests/database/lead_delivery_creation_wiring_s5_005.test.sql
+````sql
+-- S5-005 (iteration 2/N): behavioral coverage for the delivery-creation
+-- wiring added to `public.create_submission` -- a newly-prefiltered
+-- submission atomically creates one `restricted.lead_deliveries` row and
+-- one matching `public.outbox_events` row (docs/lead-delivery-
+-- contract.md Sections 8/10/11).
+--
+-- Out of scope for this iteration (see the migration's own header
+-- notes): the worker/adapter, any real destination configuration,
+-- delivery re-versioning after a terminal-negative outcome.
+--
+-- Proves that:
+--   1. A newly prefiltered submission creates exactly one lead_deliveries
+--      row (status = pending, destination_type = synthetic_sink) and one
+--      matching outbox_events row (event_type = lead.delivery_requested,
+--      same idempotency_key, payload carries the expected routing
+--      context including the real campaign_code).
+--   2. A submission classified early creates no delivery and no outbox
+--      event at all.
+--   3. A second, distinct submission from a contact that already has an
+--      active (pending) delivery to the same destination does not create
+--      a second one (Section 11's duplicate-delivery non-trigger).
+--   4. Once that existing delivery reaches a terminal-negative state
+--      (failed), a further distinct submission from the same contact is
+--      free to create a new delivery (the guard only blocks while an
+--      existing one is still active/confirmed).
+
+begin;
+
+create extension if not exists pgtap with schema extensions;
+
+select plan(18);
+
+-- -------------------------------------------------------------------------
+-- Fixture: one profile, opportunity, campaign and one active form
+-- session.
+-- -------------------------------------------------------------------------
+
+select lives_ok(
+    $fixture$
+        insert into auth.users (
+            id, instance_id, aud, role, email, created_at, updated_at
+        )
+        values (
+            'e5050500-0000-4000-8000-000000000001'::uuid,
+            '00000000-0000-0000-0000-000000000000'::uuid,
+            'authenticated', 'authenticated',
+            's5-005-delivery-wiring-owner@example.test', now(), now()
+        );
+
+        insert into public.profiles (
+            id, auth_user_id, display_name, account_status
+        )
+        values (
+            'e5050500-0000-4000-8000-000000000001'::uuid,
+            'e5050500-0000-4000-8000-000000000001'::uuid,
+            'S5-005 Delivery Wiring Owner', 'active'
+        );
+
+        insert into public.opportunities (id, name, owner_profile_id)
+        values (
+            'e5050500-0000-4000-8000-000000000002'::uuid,
+            'S5-005 delivery wiring opportunity',
+            'e5050500-0000-4000-8000-000000000001'::uuid
+        );
+
+        insert into public.campaigns (id, name, opportunity_id, owner_profile_id)
+        values (
+            'e5050500-0000-4000-8000-000000000003'::uuid,
+            'S5-005 delivery wiring campaign',
+            'e5050500-0000-4000-8000-000000000002'::uuid,
+            'e5050500-0000-4000-8000-000000000001'::uuid
+        );
+
+        insert into public.form_sessions (
+            id, campaign_id, form_version, consent_notice_version, expires_at
+        )
+        values (
+            'e5050500-0000-4000-8000-000000000301'::uuid,
+            'e5050500-0000-4000-8000-000000000003'::uuid,
+            'lead_capture_v1', 'contact_data_v1_draft',
+            now() + interval '30 minutes'
+        );
+    $fixture$,
+    'Owner profile, opportunity, campaign and one active form_session are created'
+);
+
+-- -------------------------------------------------------------------------
+-- 1. A newly prefiltered submission creates a delivery + outbox event.
+-- -------------------------------------------------------------------------
+
+select results_eq(
+    $$select outcome, classification_result from public.create_submission(
+        p_form_session_id => 'e5050500-0000-4000-8000-000000000301'::uuid,
+        p_client_submission_id => 'e5050500-0000-4000-8000-000000000401'::uuid,
+        p_name_original => 'Persona Delivery Uno',
+        p_name_normalized => 'Persona Delivery Uno',
+        p_phone_original => '+56911110001',
+        p_phone_normalized => '+56911110001',
+        p_email_original => 'persona.delivery.uno@example.invalid',
+        p_email_normalized => 'persona.delivery.uno@example.invalid',
+        p_income_range_code => 'from_2000000_to_2499999',
+        p_income_mode => 'individual',
+        p_income_threshold_met => true,
+        p_intent_declared => true,
+        p_consent_notice_version => 'contact_data_v1_draft',
+        p_consent_notice_text_hash => 'notice-hash-delivery-one',
+        p_payload_hash => 'payload-hash-delivery-one'
+    )$$,
+    $$values ('new'::text, 'prefiltered'::text)$$,
+    'First submission is new and classified prefiltered'
+);
+
+select is(
+    (select count(*)::int from restricted.lead_deliveries ld
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.delivery.uno@example.invalid'),
+    1,
+    'Exactly one lead_deliveries row was created for the newly prefiltered lead'
+);
+
+select is(
+    (select ld.status from restricted.lead_deliveries ld
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.delivery.uno@example.invalid'),
+    'pending',
+    'The new delivery defaults to status = pending'
+);
+
+select is(
+    (select ld.destination_type from restricted.lead_deliveries ld
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.delivery.uno@example.invalid'),
+    'synthetic_sink',
+    'The new delivery targets the hardcoded synthetic destination'
+);
+
+select is(
+    (select count(*)::int from public.outbox_events oe
+     join restricted.lead_deliveries ld on ld.id = oe.aggregate_id
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.delivery.uno@example.invalid'
+       and oe.aggregate_type = 'lead_delivery'),
+    1,
+    'Exactly one outbox_events row references the new lead_delivery'
+);
+
+select is(
+    (select oe.event_type from public.outbox_events oe
+     join restricted.lead_deliveries ld on ld.id = oe.aggregate_id
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.delivery.uno@example.invalid'),
+    'lead.delivery_requested',
+    'The outbox event has the expected event_type'
+);
+
+select is(
+    (select oe.idempotency_key from public.outbox_events oe
+     join restricted.lead_deliveries ld on ld.id = oe.aggregate_id
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.delivery.uno@example.invalid'),
+    (select ld.idempotency_key from restricted.lead_deliveries ld
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.delivery.uno@example.invalid'),
+    'The outbox event and the lead_delivery share the same idempotency_key'
+);
+
+select is(
+    (select oe.payload->>'destination_id' from public.outbox_events oe
+     join restricted.lead_deliveries ld on ld.id = oe.aggregate_id
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.delivery.uno@example.invalid'),
+    'synthetic_sink',
+    'The outbox payload carries the destination_id'
+);
+
+select is(
+    (select oe.payload->'payload'->>'campaign_code' from public.outbox_events oe
+     join restricted.lead_deliveries ld on ld.id = oe.aggregate_id
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.delivery.uno@example.invalid'),
+    (select code from public.campaigns where id = 'e5050500-0000-4000-8000-000000000003'::uuid),
+    'The outbox payload carries the real campaign_code resolved from the form_session'
+);
+
+-- -------------------------------------------------------------------------
+-- 2. A submission classified early creates no delivery and no outbox
+-- event.
+-- -------------------------------------------------------------------------
+
+select results_eq(
+    $$select classification_result from public.create_submission(
+        p_form_session_id => 'e5050500-0000-4000-8000-000000000301'::uuid,
+        p_client_submission_id => 'e5050500-0000-4000-8000-000000000402'::uuid,
+        p_name_original => 'Persona Delivery Dos',
+        p_name_normalized => 'Persona Delivery Dos',
+        p_phone_original => '+56911110002',
+        p_phone_normalized => '+56911110002',
+        p_email_original => 'persona.delivery.dos@example.invalid',
+        p_email_normalized => 'persona.delivery.dos@example.invalid',
+        p_income_range_code => 'from_1000000_to_1499999',
+        p_income_mode => 'individual',
+        p_income_threshold_met => false,
+        p_intent_declared => true,
+        p_consent_notice_version => 'contact_data_v1_draft',
+        p_consent_notice_text_hash => 'notice-hash-delivery-two',
+        p_payload_hash => 'payload-hash-delivery-two'
+    )$$,
+    $$values ('early'::text)$$,
+    'Second submission is classified early (below income threshold)'
+);
+
+select is(
+    (select count(*)::int from restricted.lead_deliveries ld
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.delivery.dos@example.invalid'),
+    0,
+    'No lead_deliveries row was created for the early-classified lead'
+);
+
+select is(
+    (select count(*)::int from public.outbox_events oe
+     where oe.payload->>'lead_id' = (
+         select l.id::text from restricted.leads l
+         where l.email_normalized = 'persona.delivery.dos@example.invalid'
+     )),
+    0,
+    'No outbox_events row references the early-classified lead'
+);
+
+-- -------------------------------------------------------------------------
+-- 3. A second, distinct submission from a contact that already has an
+-- active (pending) delivery does not create a second one.
+-- -------------------------------------------------------------------------
+
+select results_eq(
+    $$select outcome from public.create_submission(
+        p_form_session_id => 'e5050500-0000-4000-8000-000000000301'::uuid,
+        p_client_submission_id => 'e5050500-0000-4000-8000-000000000403'::uuid,
+        p_name_original => 'Persona Delivery Uno',
+        p_name_normalized => 'Persona Delivery Uno',
+        p_phone_original => '+56911110003',
+        p_phone_normalized => '+56911110003',
+        p_email_original => 'persona.delivery.uno@example.invalid',
+        p_email_normalized => 'persona.delivery.uno@example.invalid',
+        p_income_range_code => 'from_3000000_to_3999999',
+        p_income_mode => 'individual',
+        p_income_threshold_met => true,
+        p_intent_declared => true,
+        p_consent_notice_version => 'contact_data_v1_draft',
+        p_consent_notice_text_hash => 'notice-hash-delivery-three',
+        p_payload_hash => 'payload-hash-delivery-three'
+    )$$,
+    $$values ('new'::text)$$,
+    'A second, distinct submission from the same already-delivered contact is still its own new form_submissions row'
+);
+
+select is(
+    (select count(*)::int from restricted.lead_deliveries ld
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.delivery.uno@example.invalid'),
+    1,
+    'Still exactly one lead_deliveries row -- the duplicate submission did not create a second one while the first is still pending'
+);
+
+-- -------------------------------------------------------------------------
+-- 4. Once the existing delivery reaches a terminal-negative state, a
+-- further distinct submission from the same contact creates a new one.
+-- -------------------------------------------------------------------------
+
+select lives_ok(
+    $advance_to_failed$
+        update restricted.lead_deliveries
+        set status = 'processing'
+        where lead_id = (
+            select id from restricted.leads
+            where email_normalized = 'persona.delivery.uno@example.invalid'
+        );
+
+        update restricted.lead_deliveries
+        set status = 'failed'
+        where lead_id = (
+            select id from restricted.leads
+            where email_normalized = 'persona.delivery.uno@example.invalid'
+        );
+    $advance_to_failed$,
+    'The existing delivery is advanced to a terminal-negative state (pending -> processing -> failed)'
+);
+
+select results_eq(
+    $$select outcome from public.create_submission(
+        p_form_session_id => 'e5050500-0000-4000-8000-000000000301'::uuid,
+        p_client_submission_id => 'e5050500-0000-4000-8000-000000000404'::uuid,
+        p_name_original => 'Persona Delivery Uno',
+        p_name_normalized => 'Persona Delivery Uno',
+        p_phone_original => '+56911110004',
+        p_phone_normalized => '+56911110004',
+        p_email_original => 'persona.delivery.uno@example.invalid',
+        p_email_normalized => 'persona.delivery.uno@example.invalid',
+        p_income_range_code => 'from_2000000_to_2499999',
+        p_income_mode => 'individual',
+        p_income_threshold_met => true,
+        p_intent_declared => true,
+        p_consent_notice_version => 'contact_data_v1_draft',
+        p_consent_notice_text_hash => 'notice-hash-delivery-four',
+        p_payload_hash => 'payload-hash-delivery-four'
+    )$$,
+    $$values ('new'::text)$$,
+    'A fourth, distinct submission from the same contact is accepted as new'
+);
+
+select is(
+    (select count(*)::int from restricted.lead_deliveries ld
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.delivery.uno@example.invalid'),
+    2,
+    'A second lead_deliveries row was created once the first reached a terminal-negative state (failed)'
 );
 
 select * from finish();
@@ -68323,43 +69123,6 @@ select * from finish();
 rollback;
 ````
 
-## File: tests/api/approval-invalidate-authorization.test.ts
-````typescript
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { APP_ENVIRONMENT } from "@/lib/observability/runtime";
-⋮----
-import { POST as invalidateApproval } from "@/app/api/v1/approvals/[id]/invalidate/route";
-⋮----
-// S4-009: behavioral Private API coverage for the approval invalidation
-// command endpoint, mirroring tests/api/content-version-reject-approval-
-// authorization.test.ts's harness. This RPC (public.invalidate_approval)
-// does not go through the S1-007 execute_state_transition engine and
-// exposes no expected_version. Unlike the content-version-keyed routes,
-// this one is keyed by an approval id (p_approval_id), lives under its own
-// approvals/[id]/invalidate resource, and takes an extra required
-// `reason_code` field the RPC itself normalizes and pattern-checks. Same
-// content_version.approve (approver-only) gate as the rest of the S4-006
-// family, confirmed by direct inspection of the RPC body.
-⋮----
-function assignment(roleCode: string)
-⋮----
-function fakeUserClient(user:
-⋮----
-function fakeServiceClient(options: {
-  profile: { id: string; account_status: string } | null;
-  assignments: unknown[];
-  role: { id: string } | null;
-  rpcResult: { data: unknown; error: { code?: string; message: string } | null };
-})
-⋮----
-function invalidateRequest(body: Record<string, unknown> = {
-  reason: "S4-009 fixture approval invalidation",
-  reason_code: "checksum_changed",
-})
-⋮----
-function routeContext()
-````
-
 ## File: tests/api/asset-links-route-authorization.test.ts
 ````typescript
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -68423,75 +69186,6 @@ function fakeServiceClient(options: {
 function assetRequest(body: Record<string, unknown>)
 ````
 
-## File: tests/api/content-version-approve-authorization.test.ts
-````typescript
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { APP_ENVIRONMENT } from "@/lib/observability/runtime";
-⋮----
-import { POST as approve } from "@/app/api/v1/content-versions/[id]/approve/route";
-⋮----
-// S4-009: behavioral Private API coverage for the final-approval command
-// endpoint, mirroring tests/api/content-version-promote-to-approval-
-// pending-authorization.test.ts's harness. This RPC (public.
-// approve_content_version, S4-006) does not go through the S1-007
-// execute_state_transition engine and exposes no expected_version. Same
-// approver-only gate as promote-to-approval-pending/reject-qa
-// (content_version.approve), reused rather than duplicated. Unlike the
-// rest of the family, this RPC takes an optional `comments` and returns
-// the new approvals row's id, and has three distinct 23514 status guards
-// (wrong status, QA-incomplete, master-incomplete), all covered below.
-⋮----
-function assignment(roleCode: string)
-⋮----
-function fakeUserClient(user:
-⋮----
-function fakeServiceClient(options: {
-  profile: { id: string; account_status: string } | null;
-  assignments: unknown[];
-  role: { id: string } | null;
-  rpcResult: { data: unknown; error: { code?: string; message: string } | null };
-})
-⋮----
-function approveRequest(body: Record<string, unknown> = {
-  reason: "S4-009 fixture final approval",
-})
-⋮----
-function routeContext()
-````
-
-## File: tests/api/content-version-archive-authorization.test.ts
-````typescript
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { APP_ENVIRONMENT } from "@/lib/observability/runtime";
-⋮----
-import { POST as archive } from "@/app/api/v1/content-versions/[id]/archive/route";
-⋮----
-// S4-009: behavioral Private API coverage for the archival command
-// endpoint, mirroring tests/api/content-version-reject-approval-
-// authorization.test.ts's harness. This RPC (public.
-// archive_content_version) does not go through the S1-007
-// execute_state_transition engine and exposes no expected_version. Same
-// content_version.approve (approver-only) gate as the rest of the S4-006
-// family, confirmed by direct inspection of the RPC body.
-⋮----
-function assignment(roleCode: string)
-⋮----
-function fakeUserClient(user:
-⋮----
-function fakeServiceClient(options: {
-  profile: { id: string; account_status: string } | null;
-  assignments: unknown[];
-  role: { id: string } | null;
-  rpcResult: { data: unknown; error: { code?: string; message: string } | null };
-})
-⋮----
-function archiveRequest(body: Record<string, unknown> = {
-  reason: "S4-009 fixture archival",
-})
-⋮----
-function routeContext()
-````
-
 ## File: tests/api/content-version-create-export-asset-authorization.test.ts
 ````typescript
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -68523,39 +69217,6 @@ function fakeServiceClient(options: {
 function exportAssetRequest(body: Record<string, unknown> = {
   reason: "S4-009 fixture controlled export",
   private_storage_object_id: STORAGE_OBJECT_ID,
-})
-⋮----
-function routeContext()
-````
-
-## File: tests/api/content-version-reject-approval-authorization.test.ts
-````typescript
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { APP_ENVIRONMENT } from "@/lib/observability/runtime";
-⋮----
-import { POST as rejectApproval } from "@/app/api/v1/content-versions/[id]/reject-approval/route";
-⋮----
-// S4-009: behavioral Private API coverage for the approval rejection
-// command endpoint, mirroring tests/api/content-version-reject-qa-
-// authorization.test.ts's harness. This RPC (public.
-// reject_content_version_approval) does not go through the S1-007
-// execute_state_transition engine and exposes no expected_version. Same
-// content_version.approve (approver-only) gate as reject-qa/promote/
-// approve, confirmed by direct inspection of the RPC body.
-⋮----
-function assignment(roleCode: string)
-⋮----
-function fakeUserClient(user:
-⋮----
-function fakeServiceClient(options: {
-  profile: { id: string; account_status: string } | null;
-  assignments: unknown[];
-  role: { id: string } | null;
-  rpcResult: { data: unknown; error: { code?: string; message: string } | null };
-})
-⋮----
-function rejectApprovalRequest(body: Record<string, unknown> = {
-  reason: "S4-009 fixture approval rejection",
 })
 ⋮----
 function routeContext()
