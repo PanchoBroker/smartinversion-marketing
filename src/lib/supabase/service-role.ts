@@ -39,6 +39,16 @@ export async function resolveJobsSecret(): Promise<string | null> {
   return resolveServerSecret("JOBS_SECRET");
 }
 
+// S5-004: Section 33 "exact synthetic-test bypass mechanism" blocking
+// point, confirmed with the product owner 2026-08-07 -- a dedicated
+// header secret, same resolution pattern as JOBS_SECRET, checked only
+// by POST /api/v1/public/submissions. Absent/unconfigured is a normal,
+// expected state outside CI/staging -- callers must treat null as "no
+// bypass available", never as an error.
+export async function resolveSyntheticTestSecret(): Promise<string | null> {
+  return resolveServerSecret("SYNTHETIC_TEST_SECRET");
+}
+
 export async function createServiceRoleClient(): Promise<SupabaseClient | null> {
   const config = await resolveServerSupabaseConfig();
   const secretKey = await resolveServerSecret(
