@@ -346,3 +346,25 @@ Documento permanente y acumulativo de la Metodología Oficial de Trabajo 4.0. Vi
 **Mecánica:** cuando el contrato ya distingue "Client or server" de "Server" (sin "or client") o "Derived" para distintos valores del mismo catálogo, esa columna ES la regla de aceptación -- un actor anónimo nunca debe poder aseverar un valor cuya autoridad documentada excluye al cliente, porque eso permite contaminar métricas (falsos "recibido"/"rechazado"/"abandonado" fabricados por cualquiera). Rechazar esos valores con el mismo código que un valor de catálogo desconocido (`catalog_value_invalid`), no aceptar y marcar como no confiable -- aceptar el valor en absoluto ya es la falla.
 
 **Caso real:** S5-004 iteración 6 (2026-08-07), `POST /api/v1/public/events` -- de los 6 valores de la Sección 25.1, solo 3 tienen autoridad "Client or server"/"Server preferred" (`form_started`, `form_validation_failed`, `form_submission_attempted`); los otros 3 (`form_submission_received`/`rejected`, autoridad "Server"; `form_abandoned`, autoridad "Derived") se rechazan con `422 catalog_value_invalid` si un cliente los envía.
+
+---
+
+## Patrón: tabla mecánica genérica (ej. `outbox_events`) reutilizada por un dominio de negocio -> vocabulario de estado propio, nunca el vocabulario de la tabla dependiente
+
+**Cuándo aplica:** cualquier tabla cuyo propio `core-schema.md` la describe como mecanismo transversal/reutilizable (ej. "Reliable asynchronous events with retry and idempotency", P0, sin ligar a un dominio único) pero que en la práctica esta iteración solo alimenta un dominio de negocio concreto (aquí, entrega de leads) cuyo propio contrato SÍ fija un vocabulario de estado detallado.
+
+**Mecánica:** no copiar el vocabulario de estado de la tabla de negocio dependiente (`lead_deliveries.status`: `pending/processing/confirmed/retry_scheduled/failed/dead_letter/cancelled`, Sección 27 del contrato de entrega) hacia la tabla mecánica genérica (`outbox_events.status`) solo porque hoy es su único consumidor real -- nombres como `confirmed`/`cancelled` solo tienen sentido de negocio para una entrega, y un futuro segundo consumidor de `outbox_events` (cualquier otro evento asíncrono del dominio) heredaría un vocabulario que no le pertenece. Cuando ningún documento aprobado fija el vocabulario de la tabla genérica, la resolución correcta es un vocabulario propio, más simple, alineado solo con el modelo de fiabilidad ya fijado en abstracto (aquí, Sección 7: at-least-once, reintento acotado, dead-letter) -- documentado como decisión de implementación razonada en el header de la migración, no como ambigüedad de negocio que requiera `AskUserQuestion`. Corolario: no construir todavía el trigger de transición sobre ese vocabulario propio si ningún documento aprobado ratifica su grafo -- el CHECK acota el valor, el grafo llega con el worker que de verdad lo conduce.
+
+**Caso real:** S5-005 iteración 1 (2026-08-07), `public.outbox_events.status` -- 5 estados de cola genéricos (`pending/processing/processed/failed/dead_letter`), deliberadamente distintos de los 7 de `restricted.lead_deliveries.status`. Migración `supabase/migrations/20260830000000_lead_delivery_outbox_foundation_s5_005.sql`.
+
+---
+
+## Patrón: recontar a mano el grafo de un trigger de transición contra la tabla normativa antes de fijar `plan()`, no confiar en el conteo mientras se escribe
+
+**Cuándo aplica:** cualquier archivo pgTAP nuevo que prueba un grafo de transición de estados completo (cada edge permitido + una muestra de edges rechazados), especialmente cuando el asistente no tiene forma de correr el archivo localmente antes de entregarlo (ver [[feedback_sandbox_npm_registry_blocked]] en memoria persistente -- este mismo sandbox de Cowork tampoco tiene `sudo`/root para el patrón de validación local Postgres+pgTAP que sí estuvo disponible en sesiones anteriores).
+
+**Mecánica:** contar "N edges" de memoria mientras se redacta el header de la migración es propenso a error de +/-1, especialmente cuando la tabla normativa del contrato incluye una fila "Creation -> <estado inicial>" que no es un UPDATE real y hay que restarla aparte. El primer intento real de esta iteración documentó "nine-edge" en migración y test, y fijó `plan(33)`, cuando el trigger realmente implementaba 10 edges (11 filas de la Sección 28 del contrato menos la fila de creación) -- confirmado recién por el `Bad plan. You planned 33 tests but ran 34` real del usuario, no detectado antes por revisión manual.
+
+**Fix aplicado:** releer la tabla normativa fila por fila, contar explícitamente cuántas NO son la fila de creación, y verificar que ese número coincida exactamente con (a) las condiciones `or (...)` dentro del cuerpo del trigger y (b) la cantidad de aserciones `results_eq` de edges válidos en el pgTAP -- las tres cuentas deben coincidir antes de fijar `plan()`, no solo dos de las tres.
+
+**Caso real:** S5-005 iteración 1 (2026-08-07) -- corregido de "nine-edge"/`plan(33)` a "ten-edge"/`plan(34)` en el segundo intento, tras el fallo real reportado por el usuario.
