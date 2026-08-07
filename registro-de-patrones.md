@@ -113,6 +113,8 @@ Documento permanente y acumulativo de la Metodología Oficial de Trabajo 4.0. Vi
 
 **Archivo canónico:** `feedback_git_via_device_bridge.md` (memoria de sesión), caso real en el cierre de S4-006.
 
+**Confirmado que la regla generaliza a cualquier herramienta de shell del asistente, no solo a "device_bash" por nombre (S5-003 iteración 1, 2026-08-07):** correr `git status`/`git log --oneline`/`git fetch` de solo lectura vía la herramienta de shell sandboxed de esta sesión (Cowork, un entorno distinto al `device_bash` original que dio nombre al patrón) sobre la misma carpeta real del repo dejó igual un `.git/index.lock` huérfano de 0 bytes. El lock bloqueó minutos después los comandos git reales del usuario en su propia PowerShell (`fatal: Unable to create '.../index.lock': File exists`), obligando a un `Remove-Item -Force` manual antes de poder continuar. Mismo mecanismo de fondo (el mount que expone la carpeta del usuario al sandbox del asistente no soporta el `unlink` final del lock file), nombre de herramienta distinto — la regla dura aplica a "cualquier herramienta de shell/bash que el asistente controle sobre la carpeta real del repo", no a un nombre de herramienta específico de una generación anterior de la metodología.
+
 ---
 
 ## Patrón: `device_stage_files` puede devolver contenido obsoleto aunque el mtime coincida
@@ -212,3 +214,19 @@ Documento permanente y acumulativo de la Metodología Oficial de Trabajo 4.0. Vi
 **Mecánica:** antes de tocar `.github/workflows/*.yml` o cualquier config de CI (`.gitleaks.toml`, etc.), confirmar el estado real de GitHub Actions en https://www.githubstatus.com. Si hay un incidente activo ("Major Outage"/"Degraded Performance") que menciona runners hosted o job scheduling, la causa es externa al repo. Por Regla 16 (evidencia contradice la hipótesis dos veces seguidas → pausar, no parchar): si el mismo check se cancela dos veces seguidas sin llegar a ejecutar el scan/test real, no seguir reintentando a ciegas ni modificar el workflow/config — pausar, confirmar el incidente, y reintentar (`gh run rerun <id> --failed`) recién cuando el status mejore.
 
 **Caso real:** S5-002 iteración 2c (2026-08-06/07), PR #69. "CI / Secret scanning" cancelado dos veces (`Correlation ID: 68e6da04-9e83-428a-bdc4-12ad0fe2c193` en el primer intento) durante un incidente confirmado de GitHub Actions ("Major Outage", dos consultas reales a githubstatus.com a las 17:02 y 19:43 UTC del 2026-08-06). `.github/workflows/ci.yml` y `.gitleaks.toml` revisados completos sin nada anómalo. El rerun del día siguiente (run `31136399470`) pasó los 3 checks limpio sin ningún cambio de código.
+
+---
+
+## Patrón: token opaco de alta entropía (pgcrypto, sin secuencia) vs código legible de baja entropía (secuencia por año, `generate_claim_code`)
+
+**Cuándo aplica:** cualquier columna nueva que necesite un valor único, no adivinable, generado por default en el INSERT — decidir entre un generador aleatorio de alta entropía y un generador tipo secuencia legible por humanos.
+
+**Mecánica:** son dos familias de solución distintas según el propósito de la columna, no una elección de estilo:
+- **Código legible de negocio** (ej. `claims.code`, `CLM-<año>-<secuencia de 6 dígitos>`, S2-006): baja entropía deliberada porque un humano necesita poder leerlo/citarlo. Con baja entropía, una colisión es probable, así que necesita una tabla de secuencia (`claim_code_sequences`) con `insert ... on conflict ... do update` para garantizar unicidad de forma concurrency-safe.
+- **Token opaco de atribución/tracking** (ej. `tracking_links.token`, S5-003): el propósito es exactamente lo contrario — nunca debe ser legible, adivinable, ni derivar de ningún id interno en forma reversible (contrato F5 §5). La solución correcta es alta entropía pura vía `pgcrypto` (`encode(extensions.gen_random_bytes(20), 'hex')`, 160 bits), sin ninguna tabla de secuencia — la probabilidad de colisión a esa entropía es despreciable, un loop de reintento sería sobre-ingeniería sin propósito real.
+
+**Señal para decidir cuál aplica:** ¿un humano necesita leer/citar este valor en una conversación o UI (código legible), o el valor solo se usa programáticamente y su opacidad es un requisito de seguridad/privacidad explícito (token opaco)? La primera pregunta que hay que responder desde el contrato/documento fuente, no asumir por analogía con la columna más parecida ya construida.
+
+**Nota de infraestructura:** `pgcrypto` era una extensión nueva para este repositorio (antes solo `btree_gist`, S1-002); instalada con `create extension if not exists pgcrypto with schema extensions` — mismo patrón de instalación que `btree_gist` ya usaba, mismo schema `extensions`. `gen_random_uuid()` (usado en todo el esquema para PKs) no necesita esta extensión (nativo desde PostgreSQL 13), pero `gen_random_bytes()` sí.
+
+**Caso real:** S5-003 iteración 1 (2026-08-07), `public.generate_tracking_token()`, migración `supabase/migrations/20260825000000_tracking_links_foundation_s5_003.sql`.
