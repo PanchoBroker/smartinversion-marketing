@@ -368,3 +368,17 @@ Documento permanente y acumulativo de la Metodología Oficial de Trabajo 4.0. Vi
 **Fix aplicado:** releer la tabla normativa fila por fila, contar explícitamente cuántas NO son la fila de creación, y verificar que ese número coincida exactamente con (a) las condiciones `or (...)` dentro del cuerpo del trigger y (b) la cantidad de aserciones `results_eq` de edges válidos en el pgTAP -- las tres cuentas deben coincidir antes de fijar `plan()`, no solo dos de las tres.
 
 **Caso real:** S5-005 iteración 1 (2026-08-07) -- corregido de "nine-edge"/`plan(33)` a "ten-edge"/`plan(34)` en el segundo intento, tras el fallo real reportado por el usuario.
+
+**Confirmado que el fix generaliza (S5-005 iteración 2, mismo día):** en vez de recontar de memoria, se usó `grep -noE "select (lives_ok|results_eq|throws_ok|is|...)\(" archivo.test.sql | nl` sobre el archivo ya escrito para obtener el conteo real de aserciones antes de fijar `plan()` -- detectó que el conteo mental (19) estaba una unidad por encima del real (18), corregido antes de entregar al usuario, sin depender de una corrida real para atraparlo. Aplicar esta verificación por `grep` como paso final de cualquier archivo pgTAP nuevo, no solo para grafos de transición.
+
+---
+
+## Patrón: `is_test` (bandera de entorno sintético) y la clasificación de negocio `test` del contrato de entrega son conceptos distintos -- no gatear lógica de negocio con `is_test`
+
+**Cuándo aplica:** cualquier lógica que lea `restricted.form_submissions.is_test` (o cualquier bandera de entorno equivalente) para decidir si ejecutar un efecto de negocio real.
+
+**Mecánica:** `is_test` es una bandera transversal del proyecto, forzada a `true` sin excepción mientras D-06/D-07 sigan sin resolver (`docs/decision-register.md` §8-9) -- señala "este entorno completo es sintético", no "esta fila en particular es una prueba de QA que nunca debe generar un efecto de negocio". `docs/lead-delivery-contract.md` §4.4 define un valor de `classification` separado, `test`, con ese segundo significado -- pero `public.create_submission` nunca produce ese valor (su `classification_result` solo es `prefiltered`/`early`, documentado desde S5-004 iteración 5). Gatear la creación de una entrega (o cualquier otro efecto de negocio) por `is_test` en este proyecto la volvería permanentemente inalcanzable, porque `is_test` es `true` en el único entorno que este proyecto tiene autorizado operar hoy (Gate G4: exclusivamente sintético) -- exactamente lo opuesto de la intención.
+
+**Señal para decidir:** si un documento normativo describe una regla en términos de una *clasificación de negocio* con ese nombre (ej. `classification = 'test'`), verificar primero si el código realmente produce ese valor antes de asumir que una bandera de infraestructura con nombre parecido (`is_test`) es la misma cosa.
+
+**Caso real:** S5-005 iteración 2 (2026-08-07), `public.create_submission` -- la creación de `lead_delivery`/`outbox_event` se gatea solo por `classification = 'prefiltered'` y por la ausencia de una entrega activa/confirmada previa, nunca por `is_test`. Documentado explícitamente en el header de `supabase/migrations/20260831000000_lead_delivery_creation_wiring_s5_005.sql`.
