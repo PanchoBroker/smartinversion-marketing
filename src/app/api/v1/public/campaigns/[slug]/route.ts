@@ -1,4 +1,5 @@
 import { apiError, apiJson } from "@/lib/api/errors";
+import { resolveActivePublicCampaign } from "@/lib/api/public-campaign";
 import {
   PUBLIC_CONSENT_NOTICE,
   PUBLIC_FORM_VERSION,
@@ -51,19 +52,14 @@ export const dynamic = "force-dynamic";
 // `state_transition_subjects.current_state = 'active'` -- never
 // distinguished, so the response cannot be used to enumerate slugs or
 // probe internal campaign state.
+//
+// The slug -> active-campaign lookup itself lives in
+// src/lib/api/public-campaign.ts (extracted in the iteration that added
+// POST /form-sessions, the second caller) so the "public and active"
+// rule cannot drift between the two routes.
 
 function isPlausibleSlug(value: string): boolean {
   return value.length >= 3 && value.length <= 80;
-}
-
-interface CampaignRow {
-  id: string;
-  slug: string;
-  name: string;
-}
-
-interface StateSubjectRow {
-  current_state: string;
 }
 
 export async function GET(
@@ -86,44 +82,15 @@ export async function GET(
     return apiError(503, "service_unavailable", correlationId);
   }
 
-  const { data: campaign, error: campaignError } = await serviceClient
-    .from("campaigns")
-    .select("id, slug, name")
-    .eq("slug", slug)
-    .maybeSingle();
+  const lookup = await resolveActivePublicCampaign(serviceClient, slug);
 
-  if (campaignError) {
-    return apiError(500, "internal_error", correlationId);
+  if (!lookup.ok) {
+    return lookup.reason === "database_error"
+      ? apiError(500, "internal_error", correlationId)
+      : apiError(404, "not_found", correlationId);
   }
 
-  if (!campaign) {
-    return apiError(404, "not_found", correlationId);
-  }
-
-  const typedCampaign = campaign as CampaignRow;
-
-  const { data: subject, error: subjectError } = await serviceClient
-    .from("state_transition_subjects")
-    .select("current_state")
-    .eq("object_type", "campaign")
-    .eq("object_id", typedCampaign.id)
-    .maybeSingle();
-
-  if (subjectError) {
-    return apiError(500, "internal_error", correlationId);
-  }
-
-  // Section 15: "Only an active and public campaign may return an
-  // active form." Public = has a matching slug (already true here);
-  // active = state_transition_subjects.current_state = 'active'
-  // (S1-008 lifecycle) -- the same reading already fixed in
-  // campaigns_public_slug_s5_004.sql's own migration header.
-  if (
-    !subject ||
-    (subject as StateSubjectRow).current_state !== "active"
-  ) {
-    return apiError(404, "not_found", correlationId);
-  }
+  const typedCampaign = lookup.campaign;
 
   logInfo({
     event: "api.public.campaign_config.read",
