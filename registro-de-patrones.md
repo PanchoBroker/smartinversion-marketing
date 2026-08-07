@@ -264,3 +264,17 @@ Documento permanente y acumulativo de la Metodología Oficial de Trabajo 4.0. Vi
 **Fix:** `gh pr merge <rama-o-numero> --merge --delete-branch` desde la terminal del usuario (nunca desde la shell del asistente, Regla dura de este mismo Registro) — el CLI de GitHub resolvió el merge de inmediato sin pasar por el mismo camino de cómputo que tenía atascada la UI web.
 
 **Caso real:** S5-004 iteración 2 (2026-08-07), PR #78 `feat/f5-004-campaigns-public-slug`, merge commit `5434509`.
+
+---
+
+## Patrón: ruta pública `/api/v1/public/...` sin actor autenticado — `authorizePrivateRoute` no aplica, `service_role` es la única capa
+
+**Cuándo aplica:** cualquiera de las 4 rutas públicas de `docs/preliminary-form-contract.md` §14 (`GET /campaigns/{slug}`, `POST /form-sessions`, `POST /submissions`, `POST /events`) — la primera clase de ruta `/api/v1` de este proyecto sin sesión Supabase de por medio.
+
+**Mecánica:** `src/lib/api/private-route.ts` (`authorizePrivateRoute`) siempre exige `userClient.auth.getUser()` y devuelve 401 sin usuario -- no es reutilizable, ni parcialmente, para una ruta pública. Confirmar esto leyendo el archivo real antes de codear, no asumirlo por el nombre "private-route". Como ninguna tabla del dominio (`campaigns`, `state_transition_subjects`, y previsiblemente `form_sessions`/`restricted.form_submissions`/`restricted.leads`/`restricted.lead_consents` cuando se construyan las 3 rutas restantes) otorga privilegios a `anon` ni a `authenticated` para este propósito, no existe una capa RLS de la que depender -- la ruta pública ES el límite de autorización completo (contrato §6: "the public browser MUST interact only with protected server endpoints"). El acceso a datos ocurre exclusivamente vía `createServiceRoleClient()` (mismo cliente que usan las rutas privadas para sus propias lecturas privilegiadas internas, ej. `profiles`/`role_assignments` en `authorizePrivateRoute`), nunca vía `createClient()` (cliente de usuario, que no tiene sesión que crear aquí).
+
+**Error uniforme, no diferenciado:** cualquier motivo de rechazo (slug/id malformado, fila inexistente, fila existente pero en un estado no público) debe devolver el mismo código/forma de error, nunca distinguible entre sí -- exactamente el mismo principio que ya rige la no-divulgación de leads/sesiones en el contrato §23 ("Public errors MUST NOT reveal whether the campaign exists internally..."), extendido aquí a nivel de mecanismo de ruta.
+
+**Envelope de error:** las rutas públicas reutilizan el envelope S2-009 ya implementado en todo el proyecto (`apiError`/`apiJson`, `{error: code, correlation_id}`), no el ejemplo anidado `{error: {code, message, fields}}` de la Sección 22 del contrato -- esa sección describe la forma conceptual, no una que ya exista en código. Mantener el envelope único ya implementado es una elección deliberada de cambio mínimo (Regla 6), documentada en el header de cada ruta pública para que una sesión futura no intente "corregir" una sin tocar las demás.
+
+**Caso real:** S5-004 iteración 3 (2026-08-07), `GET /api/v1/public/campaigns/{slug}`, `src/app/api/v1/public/campaigns/[slug]/route.ts`, merge commit `95ebcbd`. Primer archivo de test del proyecto sin el harness `fakeUserClient`/`profiles`/`role_assignments` que usan todos los `tests/api/*-authorization.test.ts` anteriores (`tests/api/public-campaign-config-route.test.ts`) -- mockea únicamente `createServiceRoleClient`.
