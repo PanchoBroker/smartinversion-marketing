@@ -292,3 +292,35 @@ Documento permanente y acumulativo de la Metodología Oficial de Trabajo 4.0. Vi
 **Señal para decidir cuál aplica:** ¿el contrato dice "MUST reject" (o el campo es parte del propósito central del endpoint -- ej. `campaign_slug` en `POST /form-sessions`, que si falta o no resuelve SÍ debe fallar la petición/devolver 404) o el campo es contexto de atribución de "mejor esfuerzo" con su propio lenguaje de "ignore"/"remain null"? La primera clase rechaza; la segunda degrada a `null`.
 
 **Caso real:** S5-004 iteración 4 (2026-08-07), `POST /api/v1/public/form-sessions` -- los 5 campos de `attribution` (`source`/`medium`/`campaign`/`content`/`variant`) y `landing_path` degradan a `null` si no calzan con el formato normalizado de `form_sessions`; claves desconocidas dentro de `attribution` se descartan en silencio. `campaign_slug` (obligatorio, ausente o no resuelve -> 400/404) y el body-level "unknown top-level field" (-> 400) siguen la disciplina de rechazo estricto ya establecida en `src/lib/api/resource-routes.ts`.
+
+---
+
+## Patrón: RPC `security definer` obligatoria cuando la tabla vive en `restricted` (no solo cuando hay atomicidad multi-tabla)
+
+**Cuándo aplica:** cualquier ruta pública o privada que necesite leer o escribir `restricted.leads`/`restricted.form_submissions`/`restricted.lead_consents`/`restricted.lead_deliveries` (S1-010).
+
+**Mecánica:** hasta S5-004 iteración 4, la única razón documentada para una RPC `security definer` (vs. un insert plano vía `serviceClient.from(...)`) era la atomicidad multi-tabla (`create_campaign` inserta la fila y registra su `state_transition_subjects` en una sola función). S5-004 iteración 5 (`POST /api/v1/public/submissions`) añade una segunda razón, independiente de la atomicidad: `supabase/config.toml`'s `[api] schemas` es `["public", "graphql_public"]` -- el esquema `restricted` NUNCA está expuesto por PostgREST, así que `serviceClient.from(...)`/`.schema("restricted")` fallan sin importar qué grants tenga `service_role` sobre esas tablas (y sí los tiene, otorgados directamente por S1-010). Una función en `public` es el único camino que el cliente JS puede alcanzar. Además, dentro de esa función, `security definer` (no `invoker`) puede ser necesaria por una TERCERA razón específica de esta tabla: `restricted.form_submissions` otorga `insert/update/delete` a `service_role` pero deliberadamente NO `select` ("C U P, no Read", columna "System worker" de `access-control-matrix.md`) -- cualquier lógica que necesite leer esa tabla (ej. el chequeo de replay-vs-conflict de idempotencia) requiere `security definer` para no tener que otorgar un `select` que el matriz de acceso decidió no otorgar.
+
+**Señal para decidir:** si una ruta nueva necesita tocar cualquier tabla `restricted.*`, la pregunta no es "¿hay atomicidad multi-tabla?" sino "¿esta tabla está en el esquema `restricted`?" -- si sí, la respuesta es RPC en `public`, sin excepción, independientemente de si hay una sola tabla involucrada.
+
+**Caso real:** S5-004 iteración 5 (2026-08-07), `public.create_submission` -- `security definer`, sin chequeo de actor/rol (mismo posture anónimo que `form_sessions`), necesaria tanto por la exposición de esquema de PostgREST como por el `select` que S1-010 deliberadamente no otorgó a `service_role` sobre `form_submissions`.
+
+---
+
+## Patrón: nueva dependencia npm bloqueada en el sandbox del asistente -> confirmar alternativa con el usuario, nunca sustituir en silencio
+
+**Cuándo aplica:** cualquier decisión ya confirmada con el usuario que dependa de instalar un paquete npm nuevo.
+
+**Mecánica:** el sandbox de este asistente no tiene acceso al registro de npm (`registry.npmjs.org` devuelve 403 incluso para paquetes triviales como `left-pad`) -- esto bloquea tanto `npm install` como la resolución de bindings nativos opcionales ya declarados (`@rolldown/binding-linux-x64-gnu`, que hace que `npx vitest run` tampoco corra en este sandbox, aunque `tsc --noEmit`/`eslint` sí). Cuando una decisión ya cruzada con el usuario (blocking point del contrato o no) requiere una dependencia nueva, el asistente debe detectar el bloqueo ANTES de escribir código que la asuma, y volver a preguntar explícitamente en vez de sustituir la alternativa en silencio -- incluso si la alternativa ya se había discutido y descartado en la misma conversación.
+
+**Caso real:** S5-004 iteración 5 (2026-08-07) -- `libphonenumber-js` fue la decisión inicial confirmada para la normalización de teléfono (blocking point §33). Al intentar `npm install`, 403 en el registro. Se preguntó de nuevo al usuario en vez de caer a la alternativa (normalizador propio) sin avisar; el usuario confirmó el cambio. Documentado en el header de `src/lib/api/public-submission-normalize.ts` y en la migración `20260829000000_public_submissions_atomic_write_s5_004.sql`.
+
+---
+
+## Patrón: reservar el slot de idempotencia ANTES de cualquier escritura dependiente, no después
+
+**Cuándo aplica:** cualquier operación atómica multi-tabla con una clave de idempotencia (`unique` constraint) que además crea filas relacionadas condicionadas al éxito de la operación principal.
+
+**Mecánica:** si el insert que establece la clave de idempotencia ocurre DESPUÉS de crear las filas relacionadas (ej. insertar el lead y el consentimiento antes de insertar `form_submissions`), una petición concurrente perdedora puede alcanzar a crear esas filas relacionadas antes de chocar contra el `unique` constraint -- dejando filas huérfanas (un lead sin submission, o un submission fantasma) que ninguna transacción revierte automáticamente, porque cada peticion corre en su propia transacción completa. La secuencia correcta es: `insert ... on conflict (idempotency_key) do nothing returning id` PRIMERO (esto sí es atómico y serializa correctamente peticiones concurrentes -- Postgres bloquea al segundo insert hasta que el primero confirma o revierte), y solo si esa reserva tuvo éxito (`id` no nulo), proceder a las escrituras dependientes. Si la reserva falla (fila ya existe), comparar el hash del payload contra el ya guardado para decidir replay vs. conflicto, sin tocar ninguna otra tabla.
+
+**Caso real:** S5-004 iteración 5 (2026-08-07), `public.create_submission` -- reserva `restricted.form_submissions` con `validation_status = 'processing'` antes de tocar `restricted.leads`/`restricted.lead_consents`, y solo después de resolver el lead y la clasificación hace el `update` final que deja `validation_status = 'accepted'`.
