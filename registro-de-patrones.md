@@ -242,3 +242,13 @@ Documento permanente y acumulativo de la Metodología Oficial de Trabajo 4.0. Vi
 **Señal para decidir:** ¿la cláusula describe un escenario/ejemplo/razón, o fija una condición verificable con una comparación exacta (`=`, `in (...)`, un rango)? Si es prosa descriptiva sin operador de comparación, tratarla como contexto, no como precondición — implementar el invariante en su forma más simple y completa que el resto del texto normativo sí fija con precisión.
 
 **Caso real:** S5-003 iteración 2 (2026-08-07), `tracking_links_supersede_prior_active_trigger` — dispara incondicionalmente sobre cualquier insert que comparta `(campaign_id, publication_id, variant)` con una fila `active`, documentado explícitamente en el header de la migración para que una sesión futura no "corrija" esto agregando el chequeo de estado que el contrato nunca pidió.
+
+---
+
+## Patrón: cuando `docs/core-schema.md` §10 no define las columnas de una tabla, el contrato normativo referenciado (no el nombre de la tabla) es la única fuente — y preferir FK resuelta sobre valor crudo duplicado cuando ya existe la tabla que lo resolvería
+
+**Cuándo aplica:** cualquier tabla nueva cuyo nombre aparezca en `docs/core-schema.md` §6 (catálogo de entidades) pero sin una sección `§10.x` propia con lista de columnas — la ausencia no significa "columnas libres", significa que el contrato de columnas vive en otro documento normativo que hay que localizar antes de diseñar nada.
+
+**Mecánica:** `docs/f5-distribution-measurement-contract.md` §6 dice explícitamente, para `form_sessions`, que su "contrato mínimo es exactamente lo que S0-015 §16.2/§17.1 ya especifica" — la sección de prosa normativa (reglas de sesión, propiedades de atribución permitidas) es la fuente física de columnas, no una tabla de columnas formal como la que sí existe para `publications`/`leads`/etc. Segunda mitad del patrón: cuando una de esas columnas es "un token opaco resoluble por el servidor" (`tracking_token`, S0-015 §17.1) y ya existe una tabla foundation cuyo propósito es exactamente ser ese token opaco (`tracking_links.token`, S5-003), la columna correcta es una FK resuelta a esa tabla (`tracking_link_id`), no una columna de texto crudo duplicando el valor — evita mantener dos verdades sobre el mismo token y hereda gratis las reglas de validez/supersede que esa tabla ya construyó.
+
+**Caso real:** S5-004 iteración 1 (2026-08-07), `public.form_sessions.tracking_link_id → public.tracking_links(id)`, migración `supabase/migrations/20260827000000_form_sessions_foundation_s5_004.sql`.
