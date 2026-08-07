@@ -10,7 +10,21 @@ export type ApiErrorCode =
   | "not_found"
   | "conflict"
   | "service_unavailable"
-  | "internal_error";
+  | "internal_error"
+  // S5-004: extends the S2-009 flat envelope with the Section 23
+  // (docs/preliminary-form-contract.md) codes POST /public/submissions
+  // needs -- new members of this same union, per the deliberate
+  // one-error-shape-project-wide precedent documented in
+  // GET /api/v1/public/campaigns/[slug]/route.ts's own header, not a
+  // second envelope.
+  | "validation_failed"
+  | "consent_required"
+  | "consent_version_stale"
+  | "catalog_value_invalid"
+  | "form_unavailable"
+  | "idempotency_conflict"
+  | "rate_limited"
+  | "payload_too_large";
 
 function baseHeaders(correlationId: string): HeadersInit {
   return {
