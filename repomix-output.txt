@@ -303,6 +303,7 @@ supabase/
     20260829000000_public_submissions_atomic_write_s5_004.sql
     20260830000000_lead_delivery_outbox_foundation_s5_005.sql
     20260831000000_lead_delivery_creation_wiring_s5_005.sql
+    20260901000000_lead_delivery_worker_synthetic_adapter_s5_005.sql
   templates/
     invite.html
   tests/
@@ -335,6 +336,7 @@ supabase/
       investment_theses_s2_005.test.sql
       lead_delivery_creation_wiring_s5_005.test.sql
       lead_delivery_outbox_foundation_s5_005.test.sql
+      lead_delivery_worker_synthetic_adapter_s5_005.test.sql
       non_secret_settings_catalog_foundation_s1_009.test.sql
       opportunity_candidate_projects_s3_001.test.sql
       personal_data_isolation_environment_separation_s1_010.test.sql
@@ -10849,6 +10851,58 @@ export async function POST(
 ): Promise<Response>
 ````
 
+## File: src/app/api/v1/content-versions/[id]/export-assets/route.ts
+````typescript
+import {
+  apiError,
+  apiJson,
+  databaseErrorResponse,
+} from "@/lib/api/errors";
+import { authorizePrivateRoute } from "@/lib/api/private-route";
+import { logInfo } from "@/lib/observability/logger";
+import { APP_ENVIRONMENT } from "@/lib/observability/runtime";
+⋮----
+// S4-009: controlled export command (S4-006, contract's exports-private
+// bucket responsibility line). Runs through the server-held service-role
+// client into public.create_export_asset, the last RPC of the S4-006
+// family and the last piece of S4-009's route layer. Unlike the other six
+// content-version/approval commands, this RPC does NOT transition
+// content_versions.status -- it creates a new `assets` row (asset_type
+// 'export') backed by an already-uploaded exports-private storage object,
+// links it to the source content version, and returns the new asset's id.
+// It also does not go through the s4_005_has_active_human_role /
+// s4_005_role_is_approver guard pair the rest of the family uses; it has
+// its own inline role check (role code = 'approver' AND
+// has_active_role_for_profile(..., 'approver')), confirmed by direct
+// inspection of the function body -- functionally the same requirement
+// (an active approver), just a different helper. Every raised exception
+// (EXPORT_ASSET_*/CONTENT_VERSION_*) still carries a plain SQLSTATE
+// (42501 / 23503 / 23514), so the existing generic databaseErrorResponse
+// mapping is sufficient; there is no RPC-side context guard for
+// correlation id / reason / environment here (unlike the rest of the
+// family), so this route keeps only the minimal required/non-blank checks
+// already used everywhere else in this family, applied to both `reason`
+// and the new `private_storage_object_id` field.
+//
+// Authorization: create_export_asset requires an active `approver` role,
+// confirmed by direct inspection. Reuses the existing content_version.
+// approve action -- no authorization.ts change needed.
+⋮----
+interface CreateExportAssetBody {
+  reason: string;
+  privateStorageObjectId: string;
+}
+⋮----
+function parseCreateExportAssetBody(
+  value: unknown,
+): CreateExportAssetBody | null
+⋮----
+export async function POST(
+  request: Request,
+  routeContext: { params: Promise<{ id: string }> },
+): Promise<Response>
+````
+
 ## File: src/app/api/v1/content-versions/[id]/promote-to-approval-pending/route.ts
 ````typescript
 import {
@@ -11233,6 +11287,63 @@ function optionalText(value: unknown): string | null
 function optionalUuid(value: unknown): string | null
 ⋮----
 function optionalInteger(value: unknown): number | null
+⋮----
+export async function POST(request: Request): Promise<Response>
+````
+
+## File: src/app/api/v1/scene-prompt-versions/route.ts
+````typescript
+import {
+  apiError,
+  apiJson,
+  databaseErrorResponse,
+} from "@/lib/api/errors";
+import { authorizePrivateRoute } from "@/lib/api/private-route";
+import { createListHandler } from "@/lib/api/resource-routes";
+import { logInfo } from "@/lib/observability/logger";
+⋮----
+// Second endpoint of the `scenes` domain within S4-009 (S4-002's tables).
+// scene_prompt_versions is append-only like `scenes` (same
+// "before update or delete" rejection trigger), so this stays on the
+// plain userClient + RLS path too -- no bespoke RPC. Unlike `scenes`,
+// TWO roles hold an insert policy here (creative_owner AND
+// director_ai_operator, S4-008), hence the separate `scene_prompt_version.
+// write` action rather than reusing `scene.write`.
+//
+// The one piece of business logic this route supplies, parallel to
+// scenes' scene_number resolution: computing the next version_number for
+// the target scene_id. The master/variant shape itself (version 1 has no
+// parent/changed_variable, version > 1 requires both) is enforced by the
+// table's own CHECK constraint and by-parent trigger -- this route does
+// not duplicate that validation, it lets the database reject a malformed
+// combination (23514/23503 -> 400 via databaseErrorResponse), consistent
+// with how content-versions/route.ts defers to content_versions' own
+// immutability triggers rather than re-implementing them in TypeScript.
+⋮----
+export async function POST(request: Request): Promise<Response>
+````
+
+## File: src/app/api/v1/scenes/route.ts
+````typescript
+import {
+  apiError,
+  apiJson,
+  databaseErrorResponse,
+} from "@/lib/api/errors";
+import { authorizePrivateRoute } from "@/lib/api/private-route";
+import { createListHandler } from "@/lib/api/resource-routes";
+import { logInfo } from "@/lib/observability/logger";
+⋮----
+// S4-0xx (first F4 production-domain route): scenes has no S1-007 machine
+// and no bespoke RPC (S4-002's own migration header: scene rows are
+// append-only, immutable via "before update or delete" triggers). Creation
+// stays on the plain userClient + RLS path, mirroring content-versions/
+// route.ts (S3-007) -- the creative_owner insert policy (S4-008) is the
+// only guardian of the row. The one piece of business logic this route
+// supplies, exactly parallel to content-versions' version_number
+// resolution: computing the next scene_number for the target
+// content_version_id, since scenes_content_version_number_key requires it
+// unique and positive per content_version.
 ⋮----
 export async function POST(request: Request): Promise<Response>
 ````
@@ -45907,6 +46018,42 @@ function archiveRequest(body: Record<string, unknown> = {
 function routeContext()
 ````
 
+## File: tests/api/content-version-create-export-asset-authorization.test.ts
+````typescript
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { APP_ENVIRONMENT } from "@/lib/observability/runtime";
+⋮----
+import { POST as createExportAsset } from "@/app/api/v1/content-versions/[id]/export-assets/route";
+⋮----
+// S4-009: behavioral Private API coverage for the controlled export
+// command endpoint, mirroring tests/api/content-version-archive-
+// authorization.test.ts's harness. This RPC (public.create_export_asset)
+// does not go through the S1-007 execute_state_transition engine and does
+// not transition content_versions.status -- it creates a new `assets` row
+// backed by an exports-private storage object. Same effective
+// content_version.approve (active approver) gate as the rest of the
+// S4-006 family, confirmed by direct inspection of the RPC body (its own
+// inline role check, not the shared s4_005_role_is_approver helper).
+⋮----
+function assignment(roleCode: string)
+⋮----
+function fakeUserClient(user:
+⋮----
+function fakeServiceClient(options: {
+  profile: { id: string; account_status: string } | null;
+  assignments: unknown[];
+  role: { id: string } | null;
+  rpcResult: { data: unknown; error: { code?: string; message: string } | null };
+})
+⋮----
+function exportAssetRequest(body: Record<string, unknown> = {
+  reason: "S4-009 fixture controlled export",
+  private_storage_object_id: STORAGE_OBJECT_ID,
+})
+⋮----
+function routeContext()
+````
+
 ## File: tests/api/content-version-promote-to-approval-pending-authorization.test.ts
 ````typescript
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -46215,6 +46362,62 @@ function fakeServiceClient(options: {
 })
 ⋮----
 function sourceRequest(body: Record<string, unknown>)
+````
+
+## File: tests/api/scene-prompt-versions-route-authorization.test.ts
+````typescript
+import { beforeEach, describe, expect, it, vi } from "vitest";
+⋮----
+import { POST as createScenePromptVersion } from "@/app/api/v1/scene-prompt-versions/route";
+⋮----
+// Second endpoint of the `scenes` domain within S4-009: plain userClient +
+// RLS path, same shape as scenes/route.ts, but with TWO write roles
+// (creative_owner AND director_ai_operator, S4-008) instead of one. The
+// business logic this route supplies is resolving version_number as the
+// next free integer for the target scene_id; the master/variant CHECK
+// constraint itself is left to the database.
+⋮----
+function assignment(roleCode: string)
+⋮----
+function fakeUserClient(options:
+⋮----
+function fakeServiceClient(options: {
+  profile: { id: string; account_status: string } | null;
+  assignments: unknown[];
+})
+⋮----
+function promptVersionRequest(body: Record<string, unknown>)
+````
+
+## File: tests/api/scenes-route-authorization.test.ts
+````typescript
+import { beforeEach, describe, expect, it, vi } from "vitest";
+⋮----
+import { POST as createScene } from "@/app/api/v1/scenes/route";
+⋮----
+// First F4 production-domain route (S4-002's tables): plain userClient +
+// RLS path, mirroring content-versions/route.ts (S3-007) -- no S1-007
+// machine, no bespoke RPC, scenes are append-only. The one piece of
+// business logic this route supplies is resolving scene_number as the
+// next free integer for the target content_version_id, plus deriving
+// content_item_id from that content_version_id (the composite FK
+// scenes_content_version_content_item_fkey requires both to agree).
+⋮----
+function assignment(roleCode: string)
+⋮----
+function fakeUserClient(
+  options: {
+    version?: { content_item_id: string } | null;
+    existingScenes?: unknown[];
+  } = {},
+)
+⋮----
+function fakeServiceClient(options: {
+  profile: { id: string; account_status: string } | null;
+  assignments: unknown[];
+})
+⋮----
+function sceneRequest(body: Record<string, unknown>)
 ````
 
 ## File: tests/api/theses-route-authorization.test.ts
@@ -60210,58 +60413,6 @@ import { logInfo } from "@/lib/observability/logger";
 export async function POST(request: Request): Promise<Response>
 ````
 
-## File: src/app/api/v1/content-versions/[id]/export-assets/route.ts
-````typescript
-import {
-  apiError,
-  apiJson,
-  databaseErrorResponse,
-} from "@/lib/api/errors";
-import { authorizePrivateRoute } from "@/lib/api/private-route";
-import { logInfo } from "@/lib/observability/logger";
-import { APP_ENVIRONMENT } from "@/lib/observability/runtime";
-⋮----
-// S4-009: controlled export command (S4-006, contract's exports-private
-// bucket responsibility line). Runs through the server-held service-role
-// client into public.create_export_asset, the last RPC of the S4-006
-// family and the last piece of S4-009's route layer. Unlike the other six
-// content-version/approval commands, this RPC does NOT transition
-// content_versions.status -- it creates a new `assets` row (asset_type
-// 'export') backed by an already-uploaded exports-private storage object,
-// links it to the source content version, and returns the new asset's id.
-// It also does not go through the s4_005_has_active_human_role /
-// s4_005_role_is_approver guard pair the rest of the family uses; it has
-// its own inline role check (role code = 'approver' AND
-// has_active_role_for_profile(..., 'approver')), confirmed by direct
-// inspection of the function body -- functionally the same requirement
-// (an active approver), just a different helper. Every raised exception
-// (EXPORT_ASSET_*/CONTENT_VERSION_*) still carries a plain SQLSTATE
-// (42501 / 23503 / 23514), so the existing generic databaseErrorResponse
-// mapping is sufficient; there is no RPC-side context guard for
-// correlation id / reason / environment here (unlike the rest of the
-// family), so this route keeps only the minimal required/non-blank checks
-// already used everywhere else in this family, applied to both `reason`
-// and the new `private_storage_object_id` field.
-//
-// Authorization: create_export_asset requires an active `approver` role,
-// confirmed by direct inspection. Reuses the existing content_version.
-// approve action -- no authorization.ts change needed.
-⋮----
-interface CreateExportAssetBody {
-  reason: string;
-  privateStorageObjectId: string;
-}
-⋮----
-function parseCreateExportAssetBody(
-  value: unknown,
-): CreateExportAssetBody | null
-⋮----
-export async function POST(
-  request: Request,
-  routeContext: { params: Promise<{ id: string }> },
-): Promise<Response>
-````
-
 ## File: src/app/api/v1/generation-attempt-evaluations/route.ts
 ````typescript
 import {
@@ -61205,63 +61356,6 @@ import { logInfo } from "@/lib/observability/logger";
 // The extend/stop/revise shape (`additional_exploration_attempts`/
 // `additional_correction_attempts` required only for `extend_budget`) is
 // left entirely to the table's own CHECK constraint.
-⋮----
-export async function POST(request: Request): Promise<Response>
-````
-
-## File: src/app/api/v1/scene-prompt-versions/route.ts
-````typescript
-import {
-  apiError,
-  apiJson,
-  databaseErrorResponse,
-} from "@/lib/api/errors";
-import { authorizePrivateRoute } from "@/lib/api/private-route";
-import { createListHandler } from "@/lib/api/resource-routes";
-import { logInfo } from "@/lib/observability/logger";
-⋮----
-// Second endpoint of the `scenes` domain within S4-009 (S4-002's tables).
-// scene_prompt_versions is append-only like `scenes` (same
-// "before update or delete" rejection trigger), so this stays on the
-// plain userClient + RLS path too -- no bespoke RPC. Unlike `scenes`,
-// TWO roles hold an insert policy here (creative_owner AND
-// director_ai_operator, S4-008), hence the separate `scene_prompt_version.
-// write` action rather than reusing `scene.write`.
-//
-// The one piece of business logic this route supplies, parallel to
-// scenes' scene_number resolution: computing the next version_number for
-// the target scene_id. The master/variant shape itself (version 1 has no
-// parent/changed_variable, version > 1 requires both) is enforced by the
-// table's own CHECK constraint and by-parent trigger -- this route does
-// not duplicate that validation, it lets the database reject a malformed
-// combination (23514/23503 -> 400 via databaseErrorResponse), consistent
-// with how content-versions/route.ts defers to content_versions' own
-// immutability triggers rather than re-implementing them in TypeScript.
-⋮----
-export async function POST(request: Request): Promise<Response>
-````
-
-## File: src/app/api/v1/scenes/route.ts
-````typescript
-import {
-  apiError,
-  apiJson,
-  databaseErrorResponse,
-} from "@/lib/api/errors";
-import { authorizePrivateRoute } from "@/lib/api/private-route";
-import { createListHandler } from "@/lib/api/resource-routes";
-import { logInfo } from "@/lib/observability/logger";
-⋮----
-// S4-0xx (first F4 production-domain route): scenes has no S1-007 machine
-// and no bespoke RPC (S4-002's own migration header: scene rows are
-// append-only, immutable via "before update or delete" triggers). Creation
-// stays on the plain userClient + RLS path, mirroring content-versions/
-// route.ts (S3-007) -- the creative_owner insert policy (S4-008) is the
-// only guardian of the row. The one piece of business logic this route
-// supplies, exactly parallel to content-versions' version_number
-// resolution: computing the next scene_number for the target
-// content_version_id, since scenes_content_version_number_key requires it
-// unique and positive per content_version.
 ⋮----
 export async function POST(request: Request): Promise<Response>
 ````
@@ -64062,6 +64156,343 @@ comment on function public.create_submission(
     boolean, boolean, text, text, text
 ) is
     'S5-004/S5-005: atomic accept path for POST /api/v1/public/submissions (docs/preliminary-form-contract.md Sections 12/18-21/28), now also creating a lead_delivery + outbox_event atomically when the submission is newly classified prefiltered and no active/confirmed delivery already exists for the same lead+destination (docs/lead-delivery-contract.md Sections 8/10/11, S5-005 iteration 2). SECURITY DEFINER only to reach restricted.form_submissions for the idempotency-replay SELECT that service_role''s own grant deliberately excludes -- no actor/role check, same anonymous posture as public.form_sessions. Never sets is_test=false (see S5-004 iteration 5''s own header, D-06/D-07). EXECUTE granted to service_role only (unchanged signature, grant persists from S5-004 iteration 5).';
+
+commit;
+````
+
+## File: supabase/migrations/20260901000000_lead_delivery_worker_synthetic_adapter_s5_005.sql
+````sql
+-- S5-005 (iteration 3/N): worker claim + synthetic/disabled adapter, per
+-- docs/lead-delivery-contract.md Section 30 (worker claim and lease) and
+-- Section 59's "Processing-lease duration" / "Worker batch size and
+-- concurrency" open decisions -- resolved by the product owner this
+-- session (2026-08-07): 5-minute lease, batch size 10, single worker
+-- (no concurrent claimers modeled yet).
+--
+-- Scope of this iteration only:
+--   - `public.claim_outbox_events(p_worker_id, p_batch_size, p_lease_seconds)`
+--     -- atomically claims a bounded batch of eligible `outbox_events`
+--     (Section 30: "Workers SHOULD claim bounded batches from trusted
+--     pending records"), acquires a lease, and advances the matching
+--     `restricted.lead_deliveries` row from `pending` to `processing`.
+--   - `public.confirm_synthetic_delivery(p_outbox_event_id, p_worker_id)`
+--     -- the disabled/synthetic adapter's only operation: verifies the
+--     caller still holds the lease, then confirms the delivery and marks
+--     the outbox event processed. Makes no external call of any kind
+--     (Section 4.4, "Authorized synthetic tests" -- no real personal
+--     data leaves the system, no external side effect).
+--   - Lease columns on `public.outbox_events` needed to represent
+--     Section 30's "logical claim" (see design decision below).
+--
+-- Deliberately NOT in this iteration (left for later S5-005 work):
+--   - A real (email/webhook/internal-inbox) adapter -- no destination
+--     type beyond `synthetic_sink` is selected yet (Section 59, "Selected
+--     email, webhook or inbox provider" is still blocked "before adapter
+--     implementation").
+--   - Retry scheduling, `retry_scheduled`/`dead_letter` transitions and
+--     the append-preserving attempt-history representation (Sections
+--     31-37) -- a disabled adapter that makes no external call cannot
+--     produce a retryable, non-retryable or ambiguous outcome (Section
+--     34/35 both describe failures of a *real* external call). Section
+--     32's own rule ("attempt numbers ... increase only when an external
+--     adapter call is actually initiated") means this iteration
+--     correctly never increments `lead_deliveries.attempt_count` or
+--     `outbox_events.attempt_count` -- there is no external adapter call
+--     to count. Flagged here, not silently skipped, for whichever
+--     iteration adds a real adapter.
+--   - Concurrent multi-worker claiming -- the product owner's decision
+--     this session was explicitly "10 events, 1 worker"; `for update skip
+--     locked` below is still safe under concurrency (it is how Postgres
+--     row-locking works regardless), but nothing in this iteration has
+--     been exercised against more than one simultaneous caller.
+--   - A public/authenticated status surface for lease state -- matches
+--     docs/access-control-matrix.md Section 16's "System worker `L R U T
+--     P`" / "Human roles: status only when required" split already used
+--     by iteration 1; both new functions are `service_role`-only.
+--
+-- Design decisions made in this iteration, documented rather than
+-- silently assumed (Rule 9, pensamiento critico):
+--   - `outbox_events.leased_by` and `outbox_events.lease_expires_at` are
+--     new physical columns, even though docs/core-schema.md Section
+--     10.21 lists exactly ten columns for `outbox_events` and neither is
+--     among them. Unlike `correlation_id` (iteration 1's header explains
+--     why that stays inside `payload` instead of becoming a column),
+--     lease state cannot be represented that way: Section 30 requires
+--     "only one active lease may exist for one logical delivery" to be
+--     enforceable, which needs a column a concurrent claimer can lock and
+--     compare, not a value buried in jsonb written by the same claim it
+--     would need to race against. Section 10.21's list predates any
+--     worker/lease design (iterations 1-2 explicitly deferred the worker
+--     entirely); this is a reasoned schema extension the document's own
+--     later sections (30) require, not undocumented scope creep. No
+--     lease-acquired-timestamp column is added: Section 30 lists it as
+--     part of the logical claim, but `outbox_events.updated_at` already
+--     changes exactly when a lease is acquired (this migration's claim
+--     function sets both together), so a second column would duplicate
+--     it.
+--   - No `leased_by` column is added to `restricted.lead_deliveries` --
+--     only `outbox_events` is actually claimed by a worker (Section 30
+--     frames the claim as being over the delivery, but this codebase's
+--     physical work queue is `outbox_events`, mirroring how iteration 2
+--     already treats `outbox_events` as the row a worker drains).
+--     `lead_deliveries.status = 'processing'` plus the owning
+--     `outbox_events` row's own lease is sufficient to reconstruct who
+--     holds the delivery's lease without duplicating the lease identity.
+--   - Section 30's "expected delivery version" is satisfied by
+--     `restricted.lead_deliveries.version` (S1-010's existing generic
+--     optimistic-concurrency counter, already incremented elsewhere by
+--     `create_submission`'s own lead-update path) -- not by a new
+--     "delivery_version" column. Iteration 2's header already
+--     distinguished the *business* `delivery_version` concept (still
+--     absent) from anything physical; this iteration confirms `version`
+--     is the correct existing column to bump on every worker-driven
+--     state change, consistent with that same distinction.
+--   - `confirm_synthetic_delivery` hard-codes acceptance of
+--     `destination_type = 'synthetic_sink'` only and rejects everything
+--     else with a stable error -- the adapter is disabled by construction
+--     for any destination type this codebase has not wired (today, only
+--     one exists, created by iteration 2).
+--   - Reclaiming an outbox event whose lease has expired
+--     (`status = 'processing' and lease_expires_at < now()`) is folded
+--     into `claim_outbox_events` itself rather than a separate
+--     reconciliation function: Section 30 says "an expired `processing`
+--     lease requires reconciliation before another external call when
+--     the prior outcome may be ambiguous" -- but this adapter never makes
+--     an external call, so there is no ambiguous prior outcome to
+--     reconcile, only a possibly-crashed worker's claim to reissue. A
+--     real adapter's expired-lease handling will need to be revisited
+--     when Section 35's ambiguity rules actually apply.
+--   - `claim_outbox_events` advances `restricted.lead_deliveries` from
+--     `pending` to `processing` (or leaves an already-`processing` row
+--     alone -- the status trigger's own same-status no-op handles that)
+--     in the same statement that claims the outbox event, rather than as
+--     a separate call: Section 8/30 describe the delivery and its outbox
+--     event as one logical unit of work, and iteration 2 already creates
+--     both atomically on the way in, so claiming both atomically on the
+--     way through the worker is the symmetric choice. A known, accepted
+--     edge case: if a claimed outbox event's lead_delivery has somehow
+--     diverged into a status the transition trigger does not allow from
+--     (e.g. manually set to `confirmed` while its outbox event was still
+--     `pending`), the whole batch's claim statement aborts rather than
+--     silently skipping that one row -- consistent with this codebase's
+--     existing preference (Registro de Patrones) for failing loudly over
+--     masking a data-quality anomaly.
+
+begin;
+
+-- -----------------------------------------------------------------------
+-- Lease columns (see design decision above).
+-- -----------------------------------------------------------------------
+
+alter table public.outbox_events
+add column leased_by text,
+add column lease_expires_at timestamptz;
+
+alter table public.outbox_events
+add constraint outbox_events_lease_consistency
+check ((leased_by is null) = (lease_expires_at is null));
+
+comment on column public.outbox_events.leased_by is
+    'S5-005 (iteration 3): worker/execution identifier holding the active processing lease (docs/lead-delivery-contract.md Section 30). Null when the event is not currently claimed.';
+
+comment on column public.outbox_events.lease_expires_at is
+    'S5-005 (iteration 3): lease-expiration timestamp (Section 30). An expired processing lease is eligible for reclaim by claim_outbox_events(). Null when the event is not currently claimed.';
+
+create index outbox_events_status_lease_expires_at_idx
+on public.outbox_events (status, lease_expires_at);
+
+-- -----------------------------------------------------------------------
+-- public.claim_outbox_events: atomic bounded-batch claim (Section 30).
+-- -----------------------------------------------------------------------
+
+create or replace function public.claim_outbox_events(
+    p_worker_id text,
+    p_batch_size integer default 10,
+    p_lease_seconds integer default 300
+)
+returns table (
+    outbox_event_id uuid,
+    aggregate_type text,
+    aggregate_id uuid,
+    event_type text,
+    payload jsonb,
+    idempotency_key text
+)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+begin
+    if p_worker_id is null or btrim(p_worker_id) = '' then
+        raise exception 'CLAIM_WORKER_ID_REQUIRED' using errcode = '23514';
+    end if;
+
+    if p_batch_size is null or p_batch_size < 1 or p_batch_size > 50 then
+        raise exception 'CLAIM_BATCH_SIZE_OUT_OF_BOUNDS' using errcode = '23514';
+    end if;
+
+    if p_lease_seconds is null or p_lease_seconds < 1 or p_lease_seconds > 3600 then
+        raise exception 'CLAIM_LEASE_SECONDS_OUT_OF_BOUNDS' using errcode = '23514';
+    end if;
+
+    return query
+    with candidates as (
+        select oe.id
+        from public.outbox_events as oe
+        where (
+            oe.status = 'pending'
+            and (oe.next_attempt_at is null or oe.next_attempt_at <= now())
+        )
+        or (
+            oe.status = 'processing'
+            and oe.lease_expires_at < now()
+        )
+        order by oe.created_at asc
+        limit p_batch_size
+        for update skip locked
+    ),
+    claimed as (
+        update public.outbox_events as oe
+        set status = 'processing',
+            leased_by = p_worker_id,
+            lease_expires_at = now() + (p_lease_seconds || ' seconds')::interval,
+            updated_at = now()
+        from candidates
+        where oe.id = candidates.id
+        returning oe.id, oe.aggregate_type, oe.aggregate_id,
+                  oe.event_type, oe.payload, oe.idempotency_key
+    ),
+    advanced_deliveries as (
+        update restricted.lead_deliveries as ld
+        set status = 'processing',
+            first_attempt_at = coalesce(ld.first_attempt_at, now()),
+            version = ld.version + 1,
+            updated_at = now()
+        from claimed
+        where claimed.aggregate_type = 'lead_delivery'
+          and ld.id = claimed.aggregate_id
+        returning ld.id
+    )
+    -- The left join below is not needed for its output -- it exists so
+    -- advanced_deliveries is referenced by the primary query. Postgres
+    -- only executes a data-modifying WITH statement when something in
+    -- the primary query tree actually refers to it (directly or
+    -- transitively); an orphan CTE that nothing selects from is pruned
+    -- and silently never runs.
+    select claimed.id, claimed.aggregate_type, claimed.aggregate_id,
+           claimed.event_type, claimed.payload, claimed.idempotency_key
+    from claimed
+    left join advanced_deliveries on advanced_deliveries.id = claimed.aggregate_id;
+end;
+$$;
+
+comment on function public.claim_outbox_events(text, integer, integer) is
+    'S5-005 (iteration 3): atomically claims up to p_batch_size eligible outbox_events (pending-and-due, or processing-with-an-expired-lease) for p_worker_id, acquires a lease of p_lease_seconds, and advances the matching lead_deliveries row from pending to processing in the same statement (docs/lead-delivery-contract.md Section 30). Product-owner defaults this session (2026-08-07): batch size 10, lease 300 seconds. service_role only.';
+
+revoke all on function public.claim_outbox_events(text, integer, integer)
+from public, anon, authenticated;
+
+grant execute on function public.claim_outbox_events(text, integer, integer)
+to service_role;
+
+-- -----------------------------------------------------------------------
+-- public.confirm_synthetic_delivery: the disabled/synthetic adapter's
+-- only operation. No external call of any kind.
+-- -----------------------------------------------------------------------
+
+create or replace function public.confirm_synthetic_delivery(
+    p_outbox_event_id uuid,
+    p_worker_id text
+)
+returns table (
+    outcome text,
+    lead_delivery_id uuid,
+    delivery_status text
+)
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+    v_event record;
+    v_delivery record;
+begin
+    if p_worker_id is null or btrim(p_worker_id) = '' then
+        raise exception 'CONFIRM_WORKER_ID_REQUIRED' using errcode = '23514';
+    end if;
+
+    select oe.id, oe.status, oe.leased_by, oe.lease_expires_at,
+           oe.aggregate_type, oe.aggregate_id
+    into v_event
+    from public.outbox_events as oe
+    where oe.id = p_outbox_event_id
+    for update;
+
+    if v_event.id is null then
+        raise exception 'OUTBOX_EVENT_NOT_FOUND' using errcode = '23503';
+    end if;
+
+    if v_event.status <> 'processing' then
+        raise exception 'OUTBOX_EVENT_NOT_CLAIMED' using errcode = '23514';
+    end if;
+
+    if v_event.leased_by is distinct from p_worker_id then
+        raise exception 'OUTBOX_EVENT_LEASE_MISMATCH' using errcode = '23514';
+    end if;
+
+    if v_event.lease_expires_at < now() then
+        raise exception 'OUTBOX_EVENT_LEASE_EXPIRED' using errcode = '23514';
+    end if;
+
+    if v_event.aggregate_type <> 'lead_delivery' then
+        raise exception 'OUTBOX_EVENT_AGGREGATE_UNSUPPORTED' using errcode = '23514';
+    end if;
+
+    select ld.id, ld.status, ld.destination_type
+    into v_delivery
+    from restricted.lead_deliveries as ld
+    where ld.id = v_event.aggregate_id
+    for update;
+
+    if v_delivery.id is null then
+        raise exception 'LEAD_DELIVERY_NOT_FOUND' using errcode = '23503';
+    end if;
+
+    if v_delivery.destination_type <> 'synthetic_sink' then
+        raise exception 'LEAD_DELIVERY_DESTINATION_NOT_SUPPORTED' using errcode = '23514';
+    end if;
+
+    if v_delivery.status <> 'processing' then
+        raise exception 'LEAD_DELIVERY_NOT_CLAIMED' using errcode = '23514';
+    end if;
+
+    update restricted.lead_deliveries
+    set status = 'confirmed',
+        confirmed_at = now(),
+        version = version + 1,
+        updated_at = now()
+    where id = v_delivery.id;
+
+    update public.outbox_events
+    set status = 'processed',
+        processed_at = now(),
+        leased_by = null,
+        lease_expires_at = null,
+        updated_at = now()
+    where id = v_event.id;
+
+    return query select 'confirmed'::text, v_delivery.id, 'confirmed'::text;
+end;
+$$;
+
+comment on function public.confirm_synthetic_delivery(uuid, text) is
+    'S5-005 (iteration 3): the disabled/synthetic adapter''s only operation -- verifies p_worker_id still holds the outbox event''s active lease, then confirms the matching lead_deliveries row (synthetic_sink only) and marks the outbox event processed. Makes no external call of any kind (docs/lead-delivery-contract.md Section 4.4). service_role only.';
+
+revoke all on function public.confirm_synthetic_delivery(uuid, text)
+from public, anon, authenticated;
+
+grant execute on function public.confirm_synthetic_delivery(uuid, text)
+to service_role;
 
 commit;
 ````
@@ -67080,6 +67511,585 @@ select * from finish();
 rollback;
 ````
 
+## File: supabase/tests/database/lead_delivery_worker_synthetic_adapter_s5_005.test.sql
+````sql
+-- S5-005 (iteration 3/N): behavioral coverage for
+-- public.claim_outbox_events() and public.confirm_synthetic_delivery()
+-- (docs/lead-delivery-contract.md Section 30, worker claim and lease;
+-- Section 4.4, synthetic/disabled adapter).
+--
+-- Proves that:
+--   1. claim_outbox_events() atomically claims a due, pending outbox
+--      event, acquires a lease for the given worker, and advances the
+--      matching lead_deliveries row from pending to processing
+--      (including bumping its generic optimistic-concurrency version).
+--   2. An outbox event already claimed (lease not expired) is not
+--      re-claimed by a second worker.
+--   3. confirm_synthetic_delivery() rejects a caller that does not hold
+--      the active lease (lease mismatch), and rejects a caller whose
+--      lease has expired.
+--   4. confirm_synthetic_delivery() succeeds for the leasing worker:
+--      lead_deliveries -> confirmed with confirmed_at set and version
+--      bumped again; outbox_events -> processed with the lease cleared.
+--   5. A processed outbox event cannot be confirmed a second time.
+--   6. claim_outbox_events() reclaims an outbox event whose lease has
+--      expired (simulated by backdating lease_expires_at, since the
+--      whole test runs inside one transaction and now() does not
+--      advance).
+--   7. confirm_synthetic_delivery() rejects an aggregate_type it does
+--      not understand, and a lead_deliveries destination_type other
+--      than synthetic_sink (the disabled adapter is scoped to exactly
+--      one destination).
+--   8. Input validation: worker id required on both functions, batch
+--      size and lease seconds bounded on claim_outbox_events(), and a
+--      not-found outbox event id is rejected.
+--   9. p_batch_size actually bounds how many eligible events one call
+--      claims.
+
+begin;
+
+create extension if not exists pgtap with schema extensions;
+
+select plan(43);
+
+-- -------------------------------------------------------------------------
+-- Fixture: one profile, opportunity, campaign and one active form
+-- session, reused for every create_submission call below.
+-- -------------------------------------------------------------------------
+
+select lives_ok(
+    $fixture$
+        insert into auth.users (
+            id, instance_id, aud, role, email, created_at, updated_at
+        )
+        values (
+            'e5050503-0000-4000-8000-000000000001'::uuid,
+            '00000000-0000-0000-0000-000000000000'::uuid,
+            'authenticated', 'authenticated',
+            's5-005-worker-adapter-owner@example.test', now(), now()
+        );
+
+        insert into public.profiles (
+            id, auth_user_id, display_name, account_status
+        )
+        values (
+            'e5050503-0000-4000-8000-000000000001'::uuid,
+            'e5050503-0000-4000-8000-000000000001'::uuid,
+            'S5-005 Worker Adapter Owner', 'active'
+        );
+
+        insert into public.opportunities (id, name, owner_profile_id)
+        values (
+            'e5050503-0000-4000-8000-000000000002'::uuid,
+            'S5-005 worker adapter opportunity',
+            'e5050503-0000-4000-8000-000000000001'::uuid
+        );
+
+        insert into public.campaigns (id, name, opportunity_id, owner_profile_id)
+        values (
+            'e5050503-0000-4000-8000-000000000003'::uuid,
+            'S5-005 worker adapter campaign',
+            'e5050503-0000-4000-8000-000000000002'::uuid,
+            'e5050503-0000-4000-8000-000000000001'::uuid
+        );
+
+        insert into public.form_sessions (
+            id, campaign_id, form_version, consent_notice_version, expires_at
+        )
+        values (
+            'e5050503-0000-4000-8000-000000000301'::uuid,
+            'e5050503-0000-4000-8000-000000000003'::uuid,
+            'lead_capture_v1', 'contact_data_v1_draft',
+            now() + interval '30 minutes'
+        );
+    $fixture$,
+    'Owner profile, opportunity, campaign and one active form_session are created'
+);
+
+-- -------------------------------------------------------------------------
+-- 1. Create a prefiltered submission -> one pending lead_delivery +
+-- outbox_event to claim.
+-- -------------------------------------------------------------------------
+
+select results_eq(
+    $$select outcome, classification_result from public.create_submission(
+        p_form_session_id => 'e5050503-0000-4000-8000-000000000301'::uuid,
+        p_client_submission_id => 'e5050503-0000-4000-8000-000000000401'::uuid,
+        p_name_original => 'Persona Worker Uno',
+        p_name_normalized => 'Persona Worker Uno',
+        p_phone_original => '+56922220001',
+        p_phone_normalized => '+56922220001',
+        p_email_original => 'persona.worker.uno@example.invalid',
+        p_email_normalized => 'persona.worker.uno@example.invalid',
+        p_income_range_code => 'from_2000000_to_2499999',
+        p_income_mode => 'individual',
+        p_income_threshold_met => true,
+        p_intent_declared => true,
+        p_consent_notice_version => 'contact_data_v1_draft',
+        p_consent_notice_text_hash => 'notice-hash-worker-one',
+        p_payload_hash => 'payload-hash-worker-one'
+    )$$,
+    $$values ('new'::text, 'prefiltered'::text)$$,
+    'First submission is new and classified prefiltered'
+);
+
+-- -------------------------------------------------------------------------
+-- 2. Pre-claim state.
+-- -------------------------------------------------------------------------
+
+select is(
+    (select oe.status from public.outbox_events oe
+     join restricted.lead_deliveries ld on ld.id = oe.aggregate_id
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.worker.uno@example.invalid'),
+    'pending',
+    'The new outbox event starts pending'
+);
+
+select is(
+    (select ld.version from restricted.lead_deliveries ld
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.worker.uno@example.invalid'),
+    1::bigint,
+    'The new delivery starts at version 1'
+);
+
+-- -------------------------------------------------------------------------
+-- 3. claim_outbox_events() claims the event and advances the delivery.
+-- -------------------------------------------------------------------------
+
+select is(
+    (select count(*)::int from public.claim_outbox_events('worker-1', 10, 300)),
+    1,
+    'claim_outbox_events claims exactly one eligible event for worker-1'
+);
+
+select is(
+    (select oe.status from public.outbox_events oe
+     join restricted.lead_deliveries ld on ld.id = oe.aggregate_id
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.worker.uno@example.invalid'),
+    'processing',
+    'The claimed outbox event is now processing'
+);
+
+select is(
+    (select oe.leased_by from public.outbox_events oe
+     join restricted.lead_deliveries ld on ld.id = oe.aggregate_id
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.worker.uno@example.invalid'),
+    'worker-1',
+    'The claimed outbox event is leased by worker-1'
+);
+
+select ok(
+    (select oe.lease_expires_at > now() from public.outbox_events oe
+     join restricted.lead_deliveries ld on ld.id = oe.aggregate_id
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.worker.uno@example.invalid'),
+    'The claimed outbox event has a future lease_expires_at'
+);
+
+select is(
+    (select ld.status from restricted.lead_deliveries ld
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.worker.uno@example.invalid'),
+    'processing',
+    'The matching lead_delivery advanced to processing'
+);
+
+select is(
+    (select ld.version from restricted.lead_deliveries ld
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.worker.uno@example.invalid'),
+    2::bigint,
+    'The matching lead_delivery version was bumped to 2'
+);
+
+select ok(
+    (select ld.first_attempt_at is not null from restricted.lead_deliveries ld
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.worker.uno@example.invalid'),
+    'The matching lead_delivery recorded first_attempt_at'
+);
+
+-- -------------------------------------------------------------------------
+-- 4. A second worker cannot claim the same, still-leased event.
+-- -------------------------------------------------------------------------
+
+select is(
+    (select count(*)::int from public.claim_outbox_events('worker-2', 10, 300)),
+    0,
+    'A second worker claims nothing while the lease is still active'
+);
+
+-- -------------------------------------------------------------------------
+-- 5. confirm_synthetic_delivery() lease guards.
+-- -------------------------------------------------------------------------
+
+select throws_ok(
+    $$select * from public.confirm_synthetic_delivery(
+        (select oe.id from public.outbox_events oe
+         join restricted.lead_deliveries ld on ld.id = oe.aggregate_id
+         join restricted.leads l on l.id = ld.lead_id
+         where l.email_normalized = 'persona.worker.uno@example.invalid'),
+        'worker-2'
+    )$$,
+    '23514',
+    'OUTBOX_EVENT_LEASE_MISMATCH',
+    'A worker that does not hold the lease cannot confirm the delivery'
+);
+
+-- -------------------------------------------------------------------------
+-- 6. confirm_synthetic_delivery() succeeds for the leasing worker.
+-- -------------------------------------------------------------------------
+
+select results_eq(
+    $$select outcome, delivery_status from public.confirm_synthetic_delivery(
+        (select oe.id from public.outbox_events oe
+         join restricted.lead_deliveries ld on ld.id = oe.aggregate_id
+         join restricted.leads l on l.id = ld.lead_id
+         where l.email_normalized = 'persona.worker.uno@example.invalid'),
+        'worker-1'
+    )$$,
+    $$values ('confirmed'::text, 'confirmed'::text)$$,
+    'worker-1 successfully confirms the delivery it holds the lease for'
+);
+
+select is(
+    (select ld.status from restricted.lead_deliveries ld
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.worker.uno@example.invalid'),
+    'confirmed',
+    'The lead_delivery is now confirmed'
+);
+
+select ok(
+    (select ld.confirmed_at is not null from restricted.lead_deliveries ld
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.worker.uno@example.invalid'),
+    'The lead_delivery recorded confirmed_at'
+);
+
+select is(
+    (select ld.version from restricted.lead_deliveries ld
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.worker.uno@example.invalid'),
+    3::bigint,
+    'The lead_delivery version was bumped again to 3'
+);
+
+select is(
+    (select oe.status from public.outbox_events oe
+     join restricted.lead_deliveries ld on ld.id = oe.aggregate_id
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.worker.uno@example.invalid'),
+    'processed',
+    'The outbox event is now processed'
+);
+
+select is(
+    (select oe.leased_by from public.outbox_events oe
+     join restricted.lead_deliveries ld on ld.id = oe.aggregate_id
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.worker.uno@example.invalid'),
+    null::text,
+    'The processed outbox event''s lease is cleared (leased_by)'
+);
+
+select is(
+    (select oe.lease_expires_at from public.outbox_events oe
+     join restricted.lead_deliveries ld on ld.id = oe.aggregate_id
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.worker.uno@example.invalid'),
+    null::timestamptz,
+    'The processed outbox event''s lease is cleared (lease_expires_at)'
+);
+
+-- -------------------------------------------------------------------------
+-- 7. A processed outbox event cannot be confirmed again.
+-- -------------------------------------------------------------------------
+
+select throws_ok(
+    $$select * from public.confirm_synthetic_delivery(
+        (select oe.id from public.outbox_events oe
+         join restricted.lead_deliveries ld on ld.id = oe.aggregate_id
+         join restricted.leads l on l.id = ld.lead_id
+         where l.email_normalized = 'persona.worker.uno@example.invalid'),
+        'worker-1'
+    )$$,
+    '23514',
+    'OUTBOX_EVENT_NOT_CLAIMED',
+    'A processed outbox event cannot be confirmed a second time'
+);
+
+-- -------------------------------------------------------------------------
+-- 8. Expired-lease reclaim: a second prefiltered submission, claimed and
+-- then its lease backdated to simulate expiry.
+-- -------------------------------------------------------------------------
+
+select results_eq(
+    $$select outcome, classification_result from public.create_submission(
+        p_form_session_id => 'e5050503-0000-4000-8000-000000000301'::uuid,
+        p_client_submission_id => 'e5050503-0000-4000-8000-000000000402'::uuid,
+        p_name_original => 'Persona Worker Dos',
+        p_name_normalized => 'Persona Worker Dos',
+        p_phone_original => '+56922220002',
+        p_phone_normalized => '+56922220002',
+        p_email_original => 'persona.worker.dos@example.invalid',
+        p_email_normalized => 'persona.worker.dos@example.invalid',
+        p_income_range_code => 'from_2000000_to_2499999',
+        p_income_mode => 'individual',
+        p_income_threshold_met => true,
+        p_intent_declared => true,
+        p_consent_notice_version => 'contact_data_v1_draft',
+        p_consent_notice_text_hash => 'notice-hash-worker-two',
+        p_payload_hash => 'payload-hash-worker-two'
+    )$$,
+    $$values ('new'::text, 'prefiltered'::text)$$,
+    'Second submission is new and classified prefiltered'
+);
+
+select is(
+    (select count(*)::int from public.claim_outbox_events('worker-3', 10, 300)),
+    1,
+    'worker-3 claims the second event'
+);
+
+select lives_ok(
+    $backdate$
+        update public.outbox_events
+        set lease_expires_at = now() - interval '1 second'
+        where id = (
+            select oe.id from public.outbox_events oe
+            join restricted.lead_deliveries ld on ld.id = oe.aggregate_id
+            join restricted.leads l on l.id = ld.lead_id
+            where l.email_normalized = 'persona.worker.dos@example.invalid'
+        );
+    $backdate$,
+    'The second event''s lease is backdated to simulate expiry'
+);
+
+select throws_ok(
+    $$select * from public.confirm_synthetic_delivery(
+        (select oe.id from public.outbox_events oe
+         join restricted.lead_deliveries ld on ld.id = oe.aggregate_id
+         join restricted.leads l on l.id = ld.lead_id
+         where l.email_normalized = 'persona.worker.dos@example.invalid'),
+        'worker-3'
+    )$$,
+    '23514',
+    'OUTBOX_EVENT_LEASE_EXPIRED',
+    'worker-3 cannot confirm once its own lease has expired'
+);
+
+select is(
+    (select count(*)::int from public.claim_outbox_events('worker-4', 10, 300)),
+    1,
+    'worker-4 reclaims the event whose lease expired'
+);
+
+select is(
+    (select oe.leased_by from public.outbox_events oe
+     join restricted.lead_deliveries ld on ld.id = oe.aggregate_id
+     join restricted.leads l on l.id = ld.lead_id
+     where l.email_normalized = 'persona.worker.dos@example.invalid'),
+    'worker-4',
+    'The reclaimed event is now leased by worker-4'
+);
+
+select results_eq(
+    $$select outcome from public.confirm_synthetic_delivery(
+        (select oe.id from public.outbox_events oe
+         join restricted.lead_deliveries ld on ld.id = oe.aggregate_id
+         join restricted.leads l on l.id = ld.lead_id
+         where l.email_normalized = 'persona.worker.dos@example.invalid'),
+        'worker-4'
+    )$$,
+    $$values ('confirmed'::text)$$,
+    'worker-4 confirms the reclaimed delivery'
+);
+
+-- -------------------------------------------------------------------------
+-- 9. Unsupported aggregate_type and unsupported destination_type guards
+-- (fixtures inserted directly -- create_submission never produces these).
+-- -------------------------------------------------------------------------
+
+select lives_ok(
+    $other_aggregate$
+        insert into public.outbox_events (
+            event_type, aggregate_type, aggregate_id, idempotency_key
+        )
+        values (
+            'other.thing_happened', 'other_aggregate',
+            'e5050503-0000-4000-8000-000000000501'::uuid,
+            'other-aggregate-fixture-001'
+        );
+    $other_aggregate$,
+    'An outbox event for an aggregate_type this adapter does not understand is inserted directly'
+);
+
+select is(
+    (select count(*)::int from public.claim_outbox_events('worker-5', 10, 300)),
+    1,
+    'worker-5 claims the unrelated-aggregate event (claim itself is aggregate-agnostic)'
+);
+
+select throws_ok(
+    $$select * from public.confirm_synthetic_delivery(
+        (select id from public.outbox_events
+         where aggregate_id = 'e5050503-0000-4000-8000-000000000501'::uuid),
+        'worker-5'
+    )$$,
+    '23514',
+    'OUTBOX_EVENT_AGGREGATE_UNSUPPORTED',
+    'The synthetic adapter refuses an aggregate_type other than lead_delivery'
+);
+
+select lives_ok(
+    $other_destination$
+        insert into restricted.leads (
+            name_original, name_normalized, email_original, email_normalized,
+            phone_original, phone_normalized, income_range_code, income_mode,
+            intent_declared, classification, status
+        )
+        values (
+            'Persona Worker Tres', 'Persona Worker Tres',
+            'persona.worker.tres@example.invalid', 'persona.worker.tres@example.invalid',
+            '+56922220003', '+56922220003',
+            'from_2000000_to_2499999', 'individual', true, 'prefiltered', 'new'
+        );
+
+        insert into restricted.lead_deliveries (
+            id, lead_id, destination_type, destination_reference, idempotency_key
+        )
+        values (
+            'e5050503-0000-4000-8000-000000000502'::uuid,
+            (select id from restricted.leads
+             where email_normalized = 'persona.worker.tres@example.invalid'),
+            'email', 'ops@example.invalid',
+            'lead_delivery:e5050503-0000-4000-8000-000000000502:v1:email'
+        );
+
+        insert into public.outbox_events (
+            event_type, aggregate_type, aggregate_id, idempotency_key
+        )
+        values (
+            'lead.delivery_requested', 'lead_delivery',
+            'e5050503-0000-4000-8000-000000000502'::uuid,
+            'lead_delivery:e5050503-0000-4000-8000-000000000502:v1:email'
+        );
+    $other_destination$,
+    'A lead_delivery targeting a non-synthetic destination_type is inserted directly'
+);
+
+select is(
+    (select count(*)::int from public.claim_outbox_events('worker-6', 10, 300)),
+    1,
+    'worker-6 claims the non-synthetic-destination event'
+);
+
+select throws_ok(
+    $$select * from public.confirm_synthetic_delivery(
+        (select id from public.outbox_events
+         where aggregate_id = 'e5050503-0000-4000-8000-000000000502'::uuid),
+        'worker-6'
+    )$$,
+    '23514',
+    'LEAD_DELIVERY_DESTINATION_NOT_SUPPORTED',
+    'The disabled adapter refuses a destination_type other than synthetic_sink'
+);
+
+-- -------------------------------------------------------------------------
+-- 10. Input validation and not-found guards.
+-- -------------------------------------------------------------------------
+
+select throws_ok(
+    $$select * from public.claim_outbox_events(null, 10, 300)$$,
+    '23514', 'CLAIM_WORKER_ID_REQUIRED',
+    'claim_outbox_events requires a non-blank worker id'
+);
+
+select throws_ok(
+    $$select * from public.claim_outbox_events('worker-7', 0, 300)$$,
+    '23514', 'CLAIM_BATCH_SIZE_OUT_OF_BOUNDS',
+    'claim_outbox_events rejects a batch size below the bound'
+);
+
+select throws_ok(
+    $$select * from public.claim_outbox_events('worker-7', 51, 300)$$,
+    '23514', 'CLAIM_BATCH_SIZE_OUT_OF_BOUNDS',
+    'claim_outbox_events rejects a batch size above the bound'
+);
+
+select throws_ok(
+    $$select * from public.claim_outbox_events('worker-7', 10, 3601)$$,
+    '23514', 'CLAIM_LEASE_SECONDS_OUT_OF_BOUNDS',
+    'claim_outbox_events rejects a lease duration above the bound'
+);
+
+select throws_ok(
+    $$select * from public.confirm_synthetic_delivery(
+        'e5050503-0000-4000-8000-000000000999'::uuid, null
+    )$$,
+    '23514', 'CONFIRM_WORKER_ID_REQUIRED',
+    'confirm_synthetic_delivery requires a non-blank worker id'
+);
+
+select throws_ok(
+    $$select * from public.confirm_synthetic_delivery(
+        'e5050503-0000-4000-8000-000000000999'::uuid, 'worker-7'
+    )$$,
+    '23503', 'OUTBOX_EVENT_NOT_FOUND',
+    'confirm_synthetic_delivery rejects an unknown outbox event id'
+);
+
+-- -------------------------------------------------------------------------
+-- 11. p_batch_size actually bounds how many eligible events are claimed.
+-- -------------------------------------------------------------------------
+
+select lives_ok(
+    $two_more$
+        insert into public.outbox_events (
+            event_type, aggregate_type, aggregate_id, idempotency_key
+        )
+        values
+        (
+            'other.thing_happened', 'other_aggregate',
+            'e5050503-0000-4000-8000-000000000601'::uuid,
+            'batch-bound-fixture-001'
+        ),
+        (
+            'other.thing_happened', 'other_aggregate',
+            'e5050503-0000-4000-8000-000000000602'::uuid,
+            'batch-bound-fixture-002'
+        );
+    $two_more$,
+    'Two more pending, unrelated outbox events are inserted directly'
+);
+
+select is(
+    (select count(*)::int from public.claim_outbox_events('worker-8', 1, 300)),
+    1,
+    'A batch size of 1 claims exactly one of the two eligible events'
+);
+
+select is(
+    (select count(*)::int from public.outbox_events
+     where status = 'pending'
+       and aggregate_id in (
+           'e5050503-0000-4000-8000-000000000601'::uuid,
+           'e5050503-0000-4000-8000-000000000602'::uuid
+       )),
+    1,
+    'Exactly one of the two eligible events remains pending, unclaimed'
+);
+
+select * from finish();
+
+rollback;
+````
+
 ## File: supabase/tests/database/public_submissions_atomic_write_s5_004.test.sql
 ````sql
 -- S5-004 (iteration 5/N): behavioral coverage for
@@ -69186,42 +70196,6 @@ function fakeServiceClient(options: {
 function assetRequest(body: Record<string, unknown>)
 ````
 
-## File: tests/api/content-version-create-export-asset-authorization.test.ts
-````typescript
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { APP_ENVIRONMENT } from "@/lib/observability/runtime";
-⋮----
-import { POST as createExportAsset } from "@/app/api/v1/content-versions/[id]/export-assets/route";
-⋮----
-// S4-009: behavioral Private API coverage for the controlled export
-// command endpoint, mirroring tests/api/content-version-archive-
-// authorization.test.ts's harness. This RPC (public.create_export_asset)
-// does not go through the S1-007 execute_state_transition engine and does
-// not transition content_versions.status -- it creates a new `assets` row
-// backed by an exports-private storage object. Same effective
-// content_version.approve (active approver) gate as the rest of the
-// S4-006 family, confirmed by direct inspection of the RPC body (its own
-// inline role check, not the shared s4_005_role_is_approver helper).
-⋮----
-function assignment(roleCode: string)
-⋮----
-function fakeUserClient(user:
-⋮----
-function fakeServiceClient(options: {
-  profile: { id: string; account_status: string } | null;
-  assignments: unknown[];
-  role: { id: string } | null;
-  rpcResult: { data: unknown; error: { code?: string; message: string } | null };
-})
-⋮----
-function exportAssetRequest(body: Record<string, unknown> = {
-  reason: "S4-009 fixture controlled export",
-  private_storage_object_id: STORAGE_OBJECT_ID,
-})
-⋮----
-function routeContext()
-````
-
 ## File: tests/api/generation-attempt-evaluations-route-authorization.test.ts
 ````typescript
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -69723,62 +70697,6 @@ function fakeServiceClient(options: {
 })
 ⋮----
 function decisionRequest(body: Record<string, unknown>)
-````
-
-## File: tests/api/scene-prompt-versions-route-authorization.test.ts
-````typescript
-import { beforeEach, describe, expect, it, vi } from "vitest";
-⋮----
-import { POST as createScenePromptVersion } from "@/app/api/v1/scene-prompt-versions/route";
-⋮----
-// Second endpoint of the `scenes` domain within S4-009: plain userClient +
-// RLS path, same shape as scenes/route.ts, but with TWO write roles
-// (creative_owner AND director_ai_operator, S4-008) instead of one. The
-// business logic this route supplies is resolving version_number as the
-// next free integer for the target scene_id; the master/variant CHECK
-// constraint itself is left to the database.
-⋮----
-function assignment(roleCode: string)
-⋮----
-function fakeUserClient(options:
-⋮----
-function fakeServiceClient(options: {
-  profile: { id: string; account_status: string } | null;
-  assignments: unknown[];
-})
-⋮----
-function promptVersionRequest(body: Record<string, unknown>)
-````
-
-## File: tests/api/scenes-route-authorization.test.ts
-````typescript
-import { beforeEach, describe, expect, it, vi } from "vitest";
-⋮----
-import { POST as createScene } from "@/app/api/v1/scenes/route";
-⋮----
-// First F4 production-domain route (S4-002's tables): plain userClient +
-// RLS path, mirroring content-versions/route.ts (S3-007) -- no S1-007
-// machine, no bespoke RPC, scenes are append-only. The one piece of
-// business logic this route supplies is resolving scene_number as the
-// next free integer for the target content_version_id, plus deriving
-// content_item_id from that content_version_id (the composite FK
-// scenes_content_version_content_item_fkey requires both to agree).
-⋮----
-function assignment(roleCode: string)
-⋮----
-function fakeUserClient(
-  options: {
-    version?: { content_item_id: string } | null;
-    existingScenes?: unknown[];
-  } = {},
-)
-⋮----
-function fakeServiceClient(options: {
-  profile: { id: string; account_status: string } | null;
-  assignments: unknown[];
-})
-⋮----
-function sceneRequest(body: Record<string, unknown>)
 ````
 
 ## File: docs/g4-gate-review.md

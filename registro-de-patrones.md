@@ -382,3 +382,27 @@ Documento permanente y acumulativo de la Metodología Oficial de Trabajo 4.0. Vi
 **Señal para decidir:** si un documento normativo describe una regla en términos de una *clasificación de negocio* con ese nombre (ej. `classification = 'test'`), verificar primero si el código realmente produce ese valor antes de asumir que una bandera de infraestructura con nombre parecido (`is_test`) es la misma cosa.
 
 **Caso real:** S5-005 iteración 2 (2026-08-07), `public.create_submission` -- la creación de `lead_delivery`/`outbox_event` se gatea solo por `classification = 'prefiltered'` y por la ausencia de una entrega activa/confirmada previa, nunca por `is_test`. Documentado explícitamente en el header de `supabase/migrations/20260831000000_lead_delivery_creation_wiring_s5_005.sql`.
+
+---
+
+## Patrón: cuando una sección normativa posterior del mismo documento exige una capacidad que la lista de columnas §10.x no cubre, extender el esquema es la lectura correcta -- no forzar la capacidad dentro de una columna existente (jsonb) solo para evitar tocar el esquema
+
+**Cuándo aplica:** una tabla que ya tiene su propia lista cerrada de columnas en `docs/core-schema.md` §10.x, pero una sección normativa *posterior* del mismo contrato de dominio (no la lista de columnas) describe una regla que sólo es verificable con estado físico que esa lista no incluye.
+
+**Mecánica:** `docs/core-schema.md` §10.21 fija diez columnas para `outbox_events`, redactadas antes de que existiera ningún diseño de worker (iteraciones 1-2 de S5-005 diferían el worker explícitamente). `docs/lead-delivery-contract.md` §30 ("Worker claim and lease") exige después "solo puede existir un lease activo por entrega" -- una regla que, para ser aplicada por un `claim` atómico bajo concurrencia, necesita una columna que un segundo llamador pueda bloquear y comparar, no un valor escondido dentro de `payload` jsonb escrito por el mismo claim que competiría contra ella. La distinción frente al patrón de `correlation_id` (iteración 1, mismo archivo) es exactamente esta: `correlation_id` es un valor de sólo lectura para trazabilidad que cabe perfectamente dentro de jsonb sin perder nada; el estado de un lease es un valor que debe participar en el predicado `WHERE`/`FOR UPDATE` de la siguiente claim, y jsonb no ofrece eso sin un índice funcional adicional y sin ganar nada sobre una columna real.
+
+**Señal para decidir:** si la regla que hay que aplicar necesita aparecer en una cláusula `WHERE`/lock de una transacción concurrente futura, es una columna. Si la regla sólo necesita quedar registrada para que algo la lea más tarde (trazabilidad, auditoría pasiva), jsonb basta.
+
+**Caso real:** S5-005 iteración 3 (2026-08-07) -- `outbox_events.leased_by`/`outbox_events.lease_expires_at`, agregadas por `supabase/migrations/20260901000000_lead_delivery_worker_synthetic_adapter_s5_005.sql`, documentadas en el header como extensión razonada del esquema, no como scope creep. La "versión esperada" que el mismo §30 pide se resolvió al revés -- sin columna nueva, reutilizando `lead_deliveries.version` (contador genérico de concurrencia optimista de S1-010), porque esa capacidad ya existía físicamente y sólo hacía falta usarla con ese propósito.
+
+---
+
+## Patrón: un CTE con INSERT/UPDATE/DELETE dentro de un `WITH` que ninguna otra parte de la consulta referencia no se ejecuta en Postgres -- aunque tenga efectos secundarios que "deberían" ocurrir
+
+**Cuándo aplica:** cualquier función SQL/plpgsql que encadena dos escrituras atómicas relacionadas (ej. "reclamar un evento" + "avanzar la fila de negocio que ese evento representa") usando dos CTEs de escritura dentro del mismo `WITH`, cuando la consulta final sólo necesita el resultado del primer CTE.
+
+**Mecánica:** Postgres sólo garantiza ejecutar un CTE con una sentencia de modificación de datos si algo en el árbol de la consulta principal lo referencia, directa o transitivamente -- un CTE de escritura que nadie selecciona es podado por el planificador y simplemente no corre, sin error ni aviso. Es fácil escribir `WITH claimed AS (UPDATE ... RETURNING ...), advanced AS (UPDATE ... FROM claimed ...) SELECT ... FROM claimed` asumiendo que ambos `UPDATE` se ejecutan porque ambos están en el mismo `WITH` -- pero si la `SELECT` final nunca toca `advanced`, ese segundo `UPDATE` nunca se dispara.
+
+**Fix aplicado:** agregar un `LEFT JOIN advanced ON ...` a la consulta final aunque no se necesite ninguna columna de `advanced` -- el único propósito del join es forzar que el CTE de escritura quede referenciado por el árbol de la consulta principal. Comentar explícitamente por qué el join existe (no es obvio leyendo el SQL sin conocer esta regla).
+
+**Caso real:** S5-005 iteración 3 (2026-08-07), `public.claim_outbox_events` -- detectado en revisión propia antes de entregar al usuario (sin poder correr pgTAP localmente en este sandbox), no por un fallo real reportado. Verificar este patrón explícitamente en cualquier función futura que encadene más de un CTE de escritura.
