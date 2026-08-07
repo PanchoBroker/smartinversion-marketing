@@ -230,3 +230,15 @@ Documento permanente y acumulativo de la Metodología Oficial de Trabajo 4.0. Vi
 **Nota de infraestructura:** `pgcrypto` era una extensión nueva para este repositorio (antes solo `btree_gist`, S1-002); instalada con `create extension if not exists pgcrypto with schema extensions` — mismo patrón de instalación que `btree_gist` ya usaba, mismo schema `extensions`. `gen_random_uuid()` (usado en todo el esquema para PKs) no necesita esta extensión (nativo desde PostgreSQL 13), pero `gen_random_bytes()` sí.
 
 **Caso real:** S5-003 iteración 1 (2026-08-07), `public.generate_tracking_token()`, migración `supabase/migrations/20260825000000_tracking_links_foundation_s5_003.sql`.
+
+---
+
+## Patrón: distinguir la motivación de negocio de un contrato de una condición de activación real del gate/trigger que lo implementa
+
+**Cuándo aplica:** cualquier regla de contrato escrita en prosa que explica *por qué* existe una regla (motivación) junto con la regla misma (el invariante a hacer cumplir) — riesgo de leer la motivación como si fuera una precondición adicional del mecanismo que la implementa.
+
+**Mecánica:** el contrato F5 §5 dice "a corrected variant creates a new token rather than mutating a token already in use by a **live publication**". La frase "already in use by a live publication" describe el escenario típico que motiva la regla (por qué alguien corregiría una variante), no una condición que el trigger deba verificar antes de actuar. El invariante real y completo es más simple y más estricto: como máximo un token `active` por `(campaign_id, publication_id, variant)`, siempre, sin importar el estado de la publicación madre. Implementar el trigger con un chequeo condicional adicional ("solo superseder si la publicación está 'viva'") sería una restricción no pedida por el contrato y dejaría el invariante roto en los casos que la frase no menciona explícitamente (ej. publicación todavía en `draft`).
+
+**Señal para decidir:** ¿la cláusula describe un escenario/ejemplo/razón, o fija una condición verificable con una comparación exacta (`=`, `in (...)`, un rango)? Si es prosa descriptiva sin operador de comparación, tratarla como contexto, no como precondición — implementar el invariante en su forma más simple y completa que el resto del texto normativo sí fija con precisión.
+
+**Caso real:** S5-003 iteración 2 (2026-08-07), `tracking_links_supersede_prior_active_trigger` — dispara incondicionalmente sobre cualquier insert que comparta `(campaign_id, publication_id, variant)` con una fila `active`, documentado explícitamente en el header de la migración para que una sesión futura no "corrija" esto agregando el chequeo de estado que el contrato nunca pidió.
