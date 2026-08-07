@@ -17,6 +17,20 @@ Documento permanente y acumulativo de la Metodología Oficial de Trabajo 4.0. Vi
 
 ---
 
+## Patrón: dónde conectar un gate de negocio cuando todavía no existe el servicio de transición controlado (RPC) para esa tabla
+
+**Cuándo aplica:** una función de gate ya construida y probada en aislamiento (ej. `is_content_version_qa_complete()`, `is_approval_currently_valid()`, `is_publication_eligible()`) necesita empezar a exigirse de verdad sobre una arista concreta de una máquina de estados, pero el RPC/servicio de transición controlado para esa tabla todavía no existe (postura "Foundation, not yet connected" vigente) -- la tabla solo tiene un `grant update` directo a `service_role`.
+
+**Mecánica:** conectar el gate directamente dentro del trigger `BEFORE UPDATE` que ya valida el grafo de transiciones de esa tabla (ej. `publications_validate_status_transition()`), no dentro de un RPC nuevo todavía sin construir. El trigger es el único punto que una escritura directa de `service_role` no puede saltarse hoy -- exactamente el mismo razonamiento que ya llevó a poner el chequeo de rol/QA-completeness/master-match de `s4_006_validate_approval_entry` sobre `approvals_validate_entry_trigger` en vez de solo dentro de `approve_content_version()` ("un insert directo de service_role no puede saltarse lo que approve_content_version() exige"). Cuando el servicio de transición controlado eventualmente se construya, hereda esta misma protección gratis (el trigger se re-evalúa en cada UPDATE sin importar el llamador).
+
+**Alcance del gate, no solo su ubicación:** conectar el gate únicamente en la arista exacta que el contrato/documento fuente nombra, no en cualquier arista que termine en el mismo estado destino. Ej. el contrato F5 §4.3 solo vincula `is_publication_eligible()` a `ready -> scheduled`, nunca a `paused -> scheduled` (una arista distinta que también llega a `scheduled`) ni a `scheduled -> published` (la cascada reactiva de invalidación es un requisito separado, todavía no construido). Probar explícitamente con pgTAP que las aristas fuera de alcance NO quedan gateadas, no solo que la arista en alcance sí lo está -- evita que una futura sesión asuma por analogía que el gate ya cubre más de lo que el contrato pide.
+
+**Caso real:** S5-002 iteración 2b (2026-08-06), `is_publication_eligible()` conectado a `publications_validate_status_transition_trigger` en la arista `ready -> scheduled` únicamente.
+
+**Variante -- cascada reactiva disparada por el registro de un evento, no por una transición de estado del propio sujeto (S5-002 iteración 2c, 2026-08-06/07):** cuando el efecto a gatear no es "impedir una arista" sino "reaccionar a un evento ya ocurrido en otra tabla" (ej. una aprobación se invalida después de que la publicación ya avanzó a `scheduled`/`published`), el trigger vive en `AFTER INSERT` sobre la tabla que registra ese evento (`approval_invalidations`), no en la tabla afectada (`publications`) ni dentro de la RPC que originó el evento (`invalidate_approval()`). Mismo principio de "el trigger es el único punto que una escritura directa no puede saltarse", aplicado a una cascada saliente en vez de a un gate de entrada. El mapeo de destino (`scheduled -> paused`, `published -> withdrawn`) se fijó explícitamente en el header de la migración porque el contrato fuente (§4.3) solo dice "toward paused or withdrawn" sin fijar la correspondencia exacta -- no asumirla por analogía, documentarla como decisión de diseño. Migración: `supabase/migrations/20260824000000_publications_invalidation_cascade_s5_002.sql`.
+
+---
+
 ## Patrón "Foundation, not yet connected" → RLS por rol en sprint posterior
 
 **Cuándo aplica:** cualquier dominio nuevo (dentro de F3, F4, ...) en su sprint de origen.
@@ -26,6 +40,8 @@ Documento permanente y acumulativo de la Metodología Oficial de Trabajo 4.0. Vi
 **Consecuencia práctica:** cuando la migración de RLS por rol llega, los tests estructurales viejos que afirman `not has_table_privilege('authenticated', ...)` quedan obsoletos A PROPÓSITO. La corrección correcta es actualizar esa aserción obsoleta, nunca rediseñar la nueva migración para evitar el grant. Mismo patrón explica por qué el Vitest mockeado de S4-009 nunca vio la recursión RLS real que apareció recién en S4-010 (nunca corrió contra Postgres real con RLS activa).
 
 **Caso real resuelto así:** CI de S4-008 (PR #59), 5 tests de S4-002..S4-006 actualizados.
+
+**Variante -- gate de negocio conectado a un trigger existente, no solo un grant RLS (S5-002 iteración 2b, 2026-08-06):** el mismo principio aplica a cualquier fixture que alcanzaba un estado "final" (aquí, `content_versions.status = 'approved'`) por un atajo directo antes de que el gate real existiera. `publications_lifecycle_s5_002.test.sql` (iteración 1) insertaba `content_versions` con `status = 'approved'` directo, sin fila real en `approvals` -- válido cuando ningún gate leía esa aprobación, pero exactamente la anomalía que `is_publication_eligible()` (iteración 2a, conectada al trigger en iteración 2b) rechaza por diseño. Confirmado con evidencia real local (pgTAP contra la cadena completa de 45 migraciones): aplicar la migración de conexión sin tocar el fixture rompía "ready -> scheduled is permitted". Fix: reescribir el fixture para pasar por la ruta real `qa_pending -> approval_pending -> approved` (mismo patrón que la entrada "un content_version solo llega a approved..." más abajo), nunca debilitar el gate nuevo para que el atajo viejo siga pasando.
 
 ---
 
@@ -166,3 +182,33 @@ Documento permanente y acumulativo de la Metodología Oficial de Trabajo 4.0. Vi
 **Mecánica:** F6 se desarrolló en un track paralelo y ya fue completado por el usuario, independientemente del avance de F4/F5 en un momento dado. No señalar archivos/migraciones F6 como "fuera de secuencia" o "violación de la Regla de no adelantarse" solo por comparar contra el avance de F4 — sí se puede seguir señalando higiene técnica real e independiente (archivo untracked, estilo SQL inconsistente, falta de RLS/FK), pero sin enmarcarlo como violación de orden de fases.
 
 **Archivo canónico:** `feedback_f6_parallel_track.md` (memoria de sesión).
+
+---
+
+## Patrón: `s4_005_has_active_human_role(profile, role)` exige una fila real en `role_assignments`, no un flag en `roles`
+
+**Cuándo aplica:** cualquier fixture pgTAP que use un perfil como `approver_profile_id`/`reviewer_profile_id`/`opened_by`/`resolved_by` junto a un `role_id` de `'approver'` (o cualquier rol humano), en tablas gateadas por S4-005/S4-006 (`approvals`, `qa_reviews`, `qa_defects`, `activate_qa_checklist`, `promote_content_version_to_approval_pending`, `approve_content_version`).
+
+**Mecánica:** el gate real es `s4_005_has_active_human_role(p_profile_id, p_role_id)`, que hace `join` contra `public.role_assignments` (`revoked_at is null`, `valid_from <= now()`, `valid_until` nulo o futuro) — nunca contra una columna "activa" en `public.roles` (esa tabla solo expone `code`/`is_machine`). Un perfil de fixture que nunca recibió el rol vía `insert into public.role_assignments` falla con `42501` (`S4_006_ACTIVE_APPROVER_ROLE_REQUIRED` / `S4_005_ACTIVE_APPROVER_ROLE_REQUIRED`) aunque el rol exista y el perfil esté `active`. `role_assignments_no_self_assignment` prohíbe `assigned_by = profile_id`, así que hace falta un segundo perfil ("Role Admin") puramente para otorgar el rol.
+
+**Caso real:** S5-002 iteración 2a, commit `e3b1d9e` (5to fallo real de la iteración).
+
+---
+
+## Patrón: un `content_version` solo llega a `status='approved'` pasando por `qa_pending` → `approval_pending` → `approved`, nunca insertando directo en `approvals` con `status='approved'` ya fijado
+
+**Cuándo aplica:** cualquier fixture pgTAP que necesite un `content_version` con una aprobación válida completa (para probar `is_approval_currently_valid()`, `is_publication_eligible()`, o cualquier gate que dependa de una aprobación real), sin pasar por las rutas HTTP/RPC normales.
+
+**Mecánica:** `s4_006_validate_approval_entry()` (trigger de `approvals`) exige `content_versions.status = 'approval_pending'` en el momento exacto del INSERT — nada transiciona el status en un INSERT directo a `approvals`, solo `approve_content_version()` lo hace (y solo partiendo de `approval_pending`). Para llegar a `approval_pending` hace falta `promote_content_version_to_approval_pending()`, que exige `status='qa_pending'` + `is_content_version_qa_complete()` en `true` — esto último exige exactamente 8 `qa_reviews` (una por cada dimensión: strategic/factual/financial/visual/rights/brand/technical/conversion), las 8 contra el mismo `qa_checklist` activo, todas `decision='approved'`. Cada `qa_reviews` insert además exige que el `content_version` tenga al menos una fila en `scenes` con al menos un `scene_acceptance_criteria` (si no, `S4_005_CONTENT_VERSION_HAS_NO_SCENES`/`S4_005_SCENE_ACCEPTANCE_CRITERIA_INCOMPLETE`). La ruta correcta, ya probada verbatim en `final_approvals_invalidation_qa_queue_export_s4_006.test.sql`: `content_versions` arranca `'qa_pending'` → 1 escena+criterio → 8 `qa_reviews` contra 1 checklist activo compartido → `qa_review_item_results` (1 por review) → `update ... set decision='approved'` → `promote_content_version_to_approval_pending()` → `approve_content_version()` (esta última inserta `approvals` y pone `status='approved'` ella misma).
+
+**Caso real:** S5-002 iteración 2a, fix mergeado en `4df28e5` (6to fallo real de la iteración) — reescribió el fixture de `publications_eligibility_gate_s5_002.test.sql` para las 4 versiones (Cases C/D/E/F) que necesitaban una aprobación válida.
+
+---
+
+## Patrón: verificar https://www.githubstatus.com antes de tratar un check de CI que falla sin causa aparente como un problema del repo
+
+**Cuándo aplica:** un check requerido de CI (ej. "CI / Secret scanning", o cualquier job en runner hosted) se cancela o falla repetidamente sin ninguna anotación que apunte a un hallazgo real (gitleaks, lint, test) — en particular si las anotaciones mencionan algo como `runner not acquired`, `Internal server error`, o timeouts de scheduling.
+
+**Mecánica:** antes de tocar `.github/workflows/*.yml` o cualquier config de CI (`.gitleaks.toml`, etc.), confirmar el estado real de GitHub Actions en https://www.githubstatus.com. Si hay un incidente activo ("Major Outage"/"Degraded Performance") que menciona runners hosted o job scheduling, la causa es externa al repo. Por Regla 16 (evidencia contradice la hipótesis dos veces seguidas → pausar, no parchar): si el mismo check se cancela dos veces seguidas sin llegar a ejecutar el scan/test real, no seguir reintentando a ciegas ni modificar el workflow/config — pausar, confirmar el incidente, y reintentar (`gh run rerun <id> --failed`) recién cuando el status mejore.
+
+**Caso real:** S5-002 iteración 2c (2026-08-06/07), PR #69. "CI / Secret scanning" cancelado dos veces (`Correlation ID: 68e6da04-9e83-428a-bdc4-12ad0fe2c193` en el primer intento) durante un incidente confirmado de GitHub Actions ("Major Outage", dos consultas reales a githubstatus.com a las 17:02 y 19:43 UTC del 2026-08-06). `.github/workflows/ci.yml` y `.gitleaks.toml` revisados completos sin nada anómalo. El rerun del día siguiente (run `31136399470`) pasó los 3 checks limpio sin ningún cambio de código.
