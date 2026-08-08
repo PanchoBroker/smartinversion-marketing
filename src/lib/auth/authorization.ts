@@ -79,6 +79,10 @@ export const AUTHORIZATION_ACTIONS = [
   "publication.approve",
   "tracking_link.read",
   "tracking_link.write",
+  "metric_definition.read",
+  "metric_definition.write",
+  "metric_observation.read",
+  "metric_observation.write",
   "lead.read",
   "lead.write",
   "lead.export",
@@ -540,6 +544,37 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
   // approver reads through tracking_link.read like every other role.
   "tracking_link.read": TEAM_ROLES,
   "tracking_link.write": ["publisher"],
+
+  // S5-008 (iteration 2/N): metric_definitions (docs/access-control-
+  // matrix.md Section 15, "Measurement and learning matrix"). Its own
+  // action pair, not a reuse of the pre-existing generic metrics.read/
+  // metrics.write/metrics.approve reservation (S1-003/S2-009, still
+  // unused elsewhere) -- same one-action-per-table convention as every
+  // other F4/F5 sub-table (tracking_link vs publication, scene_prompt_
+  // version vs scene, etc.), applied even though metric_definition.write
+  // and metric_observation.write happen to admit the same single role.
+  // Read stays TEAM_ROLES, the same admit-then-let-RLS-narrow convention
+  // publication.read/tracking_link.read already use: S5-007 iteration 2's
+  // real RLS only grants a SELECT policy to results_analyst, campaign_
+  // manager, commercial_owner and investment_analyst (Section 15's
+  // unqualified cells) -- the other seven roles pass this coarse gate but
+  // see zero rows, exactly like a non-publisher/approver/campaign_manager/
+  // results_analyst role does today on `publications`. Write matches
+  // S5-007 iteration 2's only INSERT policy on metric_definitions
+  // (results_analyst).
+  "metric_definition.read": TEAM_ROLES,
+  "metric_definition.write": ["results_analyst"],
+
+  // S5-008 (iteration 2/N): metric_observations (docs/access-control-
+  // matrix.md Section 15). Its own action pair, same convention as
+  // metric_definition.* above. Write matches S5-007 iteration 2's only
+  // INSERT policy on metric_observations (results_analyst) -- the table
+  // is append-preserving (no UPDATE grant at all, any role), so there is
+  // no metric_observation.update-style action to add here, mirroring how
+  // generation_attempt.write/approvals never gained an update action
+  // either.
+  "metric_observation.read": TEAM_ROLES,
+  "metric_observation.write": ["results_analyst"],
 
   "lead.read": ["administrator", "commercial_liaison"],
   "lead.write": ["commercial_liaison"],
