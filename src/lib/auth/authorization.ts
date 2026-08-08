@@ -86,6 +86,7 @@ export const AUTHORIZATION_ACTIONS = [
   "lead.read",
   "lead.write",
   "lead.export",
+  "lead_delivery.read",
   "metrics.read",
   "metrics.write",
   "metrics.approve",
@@ -597,6 +598,23 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
     "results_analyst",
   ],
   "lead.write": ["commercial_liaison"],
+
+  // S5-008 (iteration 4/N): lead_deliveries (docs/access-control-matrix.md
+  // Section 14). All four roles that hold a real cell are admitted at
+  // this coarse layer -- same admit-then-shape convention as lead.read --
+  // but unlike leads' masked-columns shaping, the route/RPC layer here
+  // returns two genuinely different response shapes per role (full row
+  // detail vs a status/count aggregate with no per-row data at all). See
+  // public.list_lead_deliveries/public.aggregate_lead_delivery_status
+  // (this iteration's migration) for the actual split. No write action:
+  // Section 14's `U` cell is not implemented in this iteration (read
+  // only), same single-objective scope already used for `leads`.
+  "lead_delivery.read": [
+    "administrator",
+    "commercial_liaison",
+    "campaign_manager",
+    "results_analyst",
+  ],
 
   // Lead exports remain denied until an explicit export permission
   // and its audit contract are implemented.
