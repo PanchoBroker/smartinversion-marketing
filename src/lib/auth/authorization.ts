@@ -87,6 +87,7 @@ export const AUTHORIZATION_ACTIONS = [
   "lead.write",
   "lead.export",
   "lead_delivery.read",
+  "form_submission.read",
   "metrics.read",
   "metrics.write",
   "metrics.approve",
@@ -610,6 +611,25 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
   // Section 14's `U` cell is not implemented in this iteration (read
   // only), same single-objective scope already used for `leads`.
   "lead_delivery.read": [
+    "administrator",
+    "commercial_liaison",
+    "campaign_manager",
+    "results_analyst",
+  ],
+
+  // S5-008 (iteration 5/N): form_submissions (docs/access-control-matrix.md
+  // Section 14). All four roles that hold a real cell are admitted at this
+  // coarse layer -- same admit-then-shape convention as lead.read/
+  // lead_delivery.read -- but the route/RPC layer here returns THREE
+  // genuinely different response shapes per role (full row detail,
+  // de-identified row detail, or a validation_status/count aggregate with
+  // no per-row data at all), not two. See public.list_form_submissions/
+  // public.list_form_submissions_deidentified/public.
+  // aggregate_form_submissions_status (this iteration's migration) for the
+  // actual three-way split. No write action: Section 14's system_worker-
+  // only `C U P` cell has no human write path, same as `lead_deliveries`
+  // (write is machine-only, no route needed here).
+  "form_submission.read": [
     "administrator",
     "commercial_liaison",
     "campaign_manager",
