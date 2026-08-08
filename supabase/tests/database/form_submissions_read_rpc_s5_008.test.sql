@@ -214,10 +214,10 @@ select is(
             20,
             null
         )
-        where lead_id = '30000000-0000-4000-8000-000000000240'
+        where is_test = true
     ),
     3,
-    'An administrator sees all three seeded submissions'
+    'An administrator sees all three seeded submissions (no permanent seed fixtures for this table, per supabase/seed.sql line 8/81 -- unlike lead_id, is_test is true on all three synthetic rows this test inserted)'
 );
 
 select is(
