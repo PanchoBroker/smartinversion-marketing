@@ -56,8 +56,8 @@ select ok(
 );
 
 select ok(
-    not has_table_privilege('authenticated', 'public.metric_definitions', 'SELECT'),
-    'Authenticated has no privilege on metric_definitions (Foundation, not yet connected)'
+    has_table_privilege('authenticated', 'public.metric_definitions', 'SELECT'),
+    'Authenticated can select metric_definitions (S5-007 iteration 2 added per-role RLS; obsolete by design, see Registro de Patrones)'
 );
 
 select ok(
@@ -81,8 +81,8 @@ select ok(
 );
 
 select ok(
-    not has_table_privilege('authenticated', 'public.metric_observations', 'SELECT'),
-    'Authenticated has no privilege on metric_observations (Foundation, not yet connected)'
+    has_table_privilege('authenticated', 'public.metric_observations', 'SELECT'),
+    'Authenticated can select metric_observations (S5-007 iteration 2 added per-role RLS; obsolete by design, see Registro de Patrones)'
 );
 
 select ok(
