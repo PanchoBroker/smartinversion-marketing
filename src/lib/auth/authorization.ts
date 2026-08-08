@@ -77,6 +77,8 @@ export const AUTHORIZATION_ACTIONS = [
   "publication.read",
   "publication.write",
   "publication.approve",
+  "tracking_link.read",
+  "tracking_link.write",
   "lead.read",
   "lead.write",
   "lead.export",
@@ -512,9 +514,32 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
     "approver",
   ],
 
+  // S5-008: publications (docs/access-control-matrix.md Section 12).
+  // These three actions were already reserved in the S1-003 catalog
+  // before F5 existed; S5-008 is the first segment to actually wire a
+  // route to them. Kept as pre-defined rather than renamed on arrival --
+  // their shape matches the real RLS S5-006 iteration 1/2 already built:
+  // publisher holds the only INSERT/UPDATE policy (publication.write,
+  // T folded into the same UPDATE per the migration's own header),
+  // approver's UPDATE-only "A" cell is its own action
+  // (publication.approve), and every role reads at this coarse layer
+  // (TEAM_ROLES) with RLS narrowing per-row exactly as the
+  // admit-then-let-RLS-narrow convention already used throughout F4.
   "publication.read": TEAM_ROLES,
   "publication.write": ["publisher"],
   "publication.approve": ["approver"],
+
+  // S5-008: tracking_links (docs/access-control-matrix.md Section 12).
+  // Its own action pair, not a reuse of publication.*, same convention as
+  // every other F4/F5 sub-table (scene_prompt_version, asset_link,
+  // qa_checklist_item, etc.) even though the role shapes are close:
+  // publisher holds the only INSERT/UPDATE policy on tracking_links too
+  // (tracking_links_publisher_insert/_update, S5-006 iteration 1); unlike
+  // publications, approver's tracking_links cell is a bare `R` with no
+  // UPDATE policy at all, so there is no tracking_link.approve action --
+  // approver reads through tracking_link.read like every other role.
+  "tracking_link.read": TEAM_ROLES,
+  "tracking_link.write": ["publisher"],
 
   "lead.read": ["administrator", "commercial_liaison"],
   "lead.write": ["commercial_liaison"],
