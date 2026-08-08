@@ -576,7 +576,26 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
   "metric_observation.read": TEAM_ROLES,
   "metric_observation.write": ["results_analyst"],
 
-  "lead.read": ["administrator", "commercial_liaison"],
+  // S5-008 (iteration 3/N): widened from the original S1-003 reservation
+  // (administrator, commercial_liaison only) to match docs/access-control-
+  // matrix.md Section 14's full `leads` row: campaign_manager ("Masked/
+  // aggregate only") and results_analyst ("De-identified/aggregate only")
+  // also hold a real, unqualified-enough cell -- they were simply never
+  // reachable before this iteration because no masked view/RPC existed to
+  // serve them (Section 14.3's own "field-level enforcement" list --
+  // "Approved views with masked columns... API response shaping" -- is
+  // exactly what public.list_leads_masked (this iteration's migration)
+  // implements). This coarse layer admits all four; the RPC itself is
+  // what actually shapes/masks the response per role, not RLS (restricted
+  // is not exposed through the Data API at all -- see that migration's
+  // header). lead.write stays commercial_liaison-only, unchanged: no
+  // write route exists yet in this iteration.
+  "lead.read": [
+    "administrator",
+    "commercial_liaison",
+    "campaign_manager",
+    "results_analyst",
+  ],
   "lead.write": ["commercial_liaison"],
 
   // Lead exports remain denied until an explicit export permission
