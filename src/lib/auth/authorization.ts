@@ -89,6 +89,8 @@ export const AUTHORIZATION_ACTIONS = [
   "lead_delivery.read",
   "form_submission.read",
   "lead_consent.read",
+  "lead_status_event.read",
+  "lead_status_event.write",
   "metrics.read",
   "metrics.write",
   "metrics.approve",
@@ -655,6 +657,30 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
     "commercial_liaison",
     "results_analyst",
   ],
+
+  // S5-008 (iteration 7/N): lead_status_events (docs/access-control-
+  // matrix.md Section 14) -- the sixth and last "Personal-linked"
+  // restricted table this segment bridges, and the first one this segment
+  // physically creates rather than only bridges (restricted.
+  // lead_status_events did not exist before this iteration's migration).
+  // All four roles that hold a real cell are admitted at this coarse
+  // layer for lead_status_event.read -- same admit-then-shape convention
+  // as lead.read/lead_delivery.read/form_submission.read -- with a
+  // three-way response split (full detail, de-identified, aggregate),
+  // same shape as form_submission.read. lead_status_event.write is
+  // narrower than every write action in this segment so far:
+  // commercial_liaison ONLY, not administrator -- Section 14's row gives
+  // administrator "Restricted L R" (no C) and commercial_liaison "Assigned
+  // L R C", the first human create cell built anywhere in S5-008. See
+  // public.create_lead_status_event (this iteration's migration) for the
+  // write path itself.
+  "lead_status_event.read": [
+    "administrator",
+    "commercial_liaison",
+    "campaign_manager",
+    "results_analyst",
+  ],
+  "lead_status_event.write": ["commercial_liaison"],
 
   // Lead exports remain denied until an explicit export permission
   // and its audit contract are implemented.
