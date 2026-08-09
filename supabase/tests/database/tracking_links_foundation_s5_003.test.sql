@@ -12,7 +12,12 @@
 -- Proves that:
 --   1. `tracking_links` exists with RLS enabled and is reachable only by
 --      service_role (Foundation, not yet connected).
---   2. `generate_tracking_token()` is executable only by service_role.
+--   2. `generate_tracking_token()` is executable by service_role and (since
+--      S5-009's correction) by authenticated -- see the assertion's own
+--      comment; the original "service_role only" claim was obsoleted by
+--      S5-006 iteration 1 the same way the SELECT grant below already was,
+--      just not caught until S5-009's behavioral testing exercised a real
+--      authenticated INSERT.
 --   3. A plain insert defaults to status = 'active' and a 40-character
 --      lowercase-hex token.
 --   4. Two independent calls to generate_tracking_token() produce
@@ -71,8 +76,8 @@ select ok(
 );
 
 select ok(
-    not has_function_privilege('authenticated', 'public.generate_tracking_token()', 'EXECUTE'),
-    'Authenticated cannot execute generate_tracking_token (Foundation, not yet connected)'
+    has_function_privilege('authenticated', 'public.generate_tracking_token()', 'EXECUTE'),
+    'Authenticated can execute generate_tracking_token (S5-009 correction: tracking_links.token invokes it as a DEFAULT and S5-006 iteration 1 opened direct authenticated INSERT for publisher; obsolete by design, same as the SELECT grant above, see 20260913000000_generate_tracking_token_authorization_s5_009.sql)'
 );
 
 select ok(
