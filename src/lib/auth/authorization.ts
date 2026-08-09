@@ -92,6 +92,7 @@ export const AUTHORIZATION_ACTIONS = [
   "lead_status_event.read",
   "lead_status_event.write",
   "form_session.read",
+  "lead_attribution.read",
   "metrics.read",
   "metrics.write",
   "metrics.approve",
@@ -703,6 +704,25 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
   // as every other "Aggregate only" cell in this segment.
   "form_session.read": [
     "administrator",
+    "campaign_manager",
+    "results_analyst",
+  ],
+
+  // S5-008 (iteration 9/N): lead_attribution (docs/access-control-
+  // matrix.md Section 14) -- the seventh and last Section 14 row this
+  // segment bridges, and the second table this segment physically creates
+  // (restricted.lead_attribution did not exist before this iteration's
+  // migration). All four roles that hold a real cell are admitted at this
+  // coarse layer -- same admit-then-shape convention as lead.read/
+  // lead_delivery.read/form_submission.read -- with the usual three-way
+  // response split (full detail, de-identified, campaign aggregate). No
+  // write action: Section 14's system_worker-only `C R P` cell has no
+  // human write path (commercial_liaison is bare "Assigned R", not "R C"
+  // like lead_status_event.write), same as lead_delivery.read/
+  // form_submission.read/lead_consent.read.
+  "lead_attribution.read": [
+    "administrator",
+    "commercial_liaison",
     "campaign_manager",
     "results_analyst",
   ],
