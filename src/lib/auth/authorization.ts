@@ -88,6 +88,7 @@ export const AUTHORIZATION_ACTIONS = [
   "lead.export",
   "lead_delivery.read",
   "form_submission.read",
+  "lead_consent.read",
   "metrics.read",
   "metrics.write",
   "metrics.approve",
@@ -633,6 +634,25 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
     "administrator",
     "commercial_liaison",
     "campaign_manager",
+    "results_analyst",
+  ],
+
+  // S5-008 (iteration 6/N): lead_consents (docs/access-control-matrix.md
+  // Section 14). Unlike lead.read/lead_delivery.read/form_submission.read,
+  // only THREE roles are admitted here, not four: Section 14's
+  // `lead_consents` row gives campaign_manager no cell at all ("--"), not
+  // a masked/aggregate cell like every other table in this segment --
+  // admitting it here would over-admit relative to the matrix. The
+  // route/RPC layer returns two shapes per role, same admit-then-shape
+  // convention as lead_delivery.read: full row detail (administrator/
+  // commercial_liaison) or a consent_type/accepted/count aggregate with no
+  // per-row data at all (results_analyst). See public.list_lead_consents/
+  // public.aggregate_lead_consents (this iteration's migration). No write
+  // action: Section 14's system_worker-only `C R P` cell has no human
+  // write path, same as lead_delivery.read/form_submission.read.
+  "lead_consent.read": [
+    "administrator",
+    "commercial_liaison",
     "results_analyst",
   ],
 
