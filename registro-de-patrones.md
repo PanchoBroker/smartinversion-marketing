@@ -433,6 +433,18 @@ Documento permanente y acumulativo de la Metodología Oficial de Trabajo 4.0. Vi
 
 ---
 
+## Patrón: verificar contra `supabase/config.toml` cuál schema está expuesto, no asumirlo por analogía con otra tabla del mismo dominio
+
+**Cuándo aplica:** cualquier tabla nueva de F4/F5/F6 antes de decidir si necesita un puente RPC (`security definer`) o si alcanza con `grant`/RLS plano vía `context.userClient.from(...)`.
+
+**Mecánica:** el header de `publications_tracking_links_role_based_rls_s5_006.sql` (iteración 1 de S5-006) agrupó `form_sessions` junto con las tablas `restricted.*` como "unreachable... PostgREST never exposes [that] schema at all" -- una afirmación falsa para esa tabla específica: `form_sessions` vive en `public` (S1-010 lo dice explícitamente: "form_sessions remains in the public application schema"), y `supabase/config.toml`'s `[api] schemas = ["public", "graphql_public"]` confirma que `public` sí está expuesto. Esa frase incorrecta, escrita una sola vez en 2026-08-08, quedó como la referencia normativa de facto para toda iteración posterior de S5-008 -- ninguna de las iteraciones 1-7 construyó RLS/ruta para `form_sessions`, presumiblemente por confiar en esa agrupación sin volver a verificarla contra el archivo de configuración real.
+
+**Fix aplicado:** antes de decidir el patrón de acceso (RPC bridge vs. RLS plano) para una tabla nueva, releer `supabase/config.toml`'s `[api] schemas` directamente, nunca heredar la clasificación del header de una migración anterior sin volver a confirmarla -- ni siquiera cuando esa migración es la referencia más reciente y más citada del mismo dominio.
+
+**Caso real:** S5-008 iteración 8 (2026-08-09) -- `form_sessions_role_based_rls_s5_008.sql` construye RLS plana + una función `security definer` solo para las celdas "Aggregate only" (que sí necesitan bypasear RLS por razón de forma de respuesta, no por alcance de esquema), corrigiendo siete iteraciones de omisión heredada.
+
+---
+
 ## Patrón: en un test pgTAP, verificar una tabla `restricted.*` cuyo `service_role` no tiene `select` -- leer siempre vía `set local role authenticated` + la policy RLS existente, nunca como `service_role` directo
 
 **Cuándo aplica:** cualquier aserción pgTAP nueva (verificación de fila persistida, conteo, o cualquier lectura fuera de las funciones RPC ya cubiertas por privilege checks) sobre una tabla `restricted.*` cuya fila "System worker" en `access-control-matrix.md` §14 no incluye la letra `R` (ej. `form_submissions` "C U P", `lead_status_events` "C P controlled") -- S1-010/las migraciones de este segmento nunca otorgan `select` a `service_role` en esos casos, deliberadamente.

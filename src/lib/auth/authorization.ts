@@ -91,6 +91,7 @@ export const AUTHORIZATION_ACTIONS = [
   "lead_consent.read",
   "lead_status_event.read",
   "lead_status_event.write",
+  "form_session.read",
   "metrics.read",
   "metrics.write",
   "metrics.approve",
@@ -681,6 +682,30 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
     "results_analyst",
   ],
   "lead_status_event.write": ["commercial_liaison"],
+
+  // S5-008 (iteration 8/N): form_sessions (docs/access-control-matrix.md
+  // Section 14) -- the sixth of seven Section 14 rows this segment
+  // bridges, and the only one in `public` schema (reachable via plain
+  // `context.userClient.from(...)` + RLS, not an RPC bridge -- see the
+  // migration's own header for why prior iterations skipped this table).
+  // Only THREE roles are admitted here, not four: commercial_liaison's
+  // "Related R" cell has no physical relationship anywhere on this table
+  // (a session predates any lead or liaison assignment) -- same
+  // fail-closed-on-unsupported-qualifier treatment S5-006 iteration 1
+  // already gave commercial_owner's own undefined "Related" cells on
+  // publications/tracking_links, not the unscoped-grant treatment used
+  // for "Assigned commercial_liaison" elsewhere in this segment (those
+  // extended a PRE-EXISTING S1-010 grant; this table has none to extend).
+  // administrator gets full row detail via plain RLS;
+  // campaign_manager/results_analyst get a campaign_id/count aggregate
+  // with no per-row data at all, via public.aggregate_form_sessions_by_
+  // campaign (this iteration's migration) -- same admit-then-shape split
+  // as every other "Aggregate only" cell in this segment.
+  "form_session.read": [
+    "administrator",
+    "campaign_manager",
+    "results_analyst",
+  ],
 
   // Lead exports remain denied until an explicit export permission
   // and its audit contract are implemented.
