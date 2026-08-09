@@ -626,6 +626,15 @@ Outbox payloads contain only the minimum information required by the consumer.
 
 Approved 2026-08-09 (S5-008 iteration 7), appended after 10.21 rather than inserted between 10.19 and 10.20 to avoid renumbering. No free-text notes field. `status_code` and `source` are free text with no enumerated vocabulary yet, same treatment as `leads.status`/`leads.classification`. `actor_profile_id` is nullable.
 
+### 10.23 `lead_attribution`
+
+- `lead_id`
+- `form_session_id`
+- `touchpoint_type`
+- `recorded_at`
+
+Approved 2026-08-09 (S5-008 iteration 9), derived directly from `docs/preliminary-form-contract.md` §16-17 (per `docs/f5-distribution-measurement-contract.md` §6) rather than invented fresh. `form_session_id` resolves to `public.form_sessions` instead of duplicating its seven attribution columns. `touchpoint_type` is a closed vocabulary (`initial`/`conversion`, §17.2) -- unlike `lead_status_events.status_code`, this one has approved backing. At most one `initial` row per `lead_id` (partial unique index); any number of `conversion` rows.
+
 ## 11. Lifecycle states
 
 ### 11.1 Opportunity

@@ -445,6 +445,18 @@ Documento permanente y acumulativo de la Metodología Oficial de Trabajo 4.0. Vi
 
 ---
 
+## Patrón: `throws_ok` verificando un SQLSTATE necesita el `null` explícito de 4 argumentos -- la forma de 3 argumentos compara el mensaje, no lo trata como descripción
+
+**Cuándo aplica:** cualquier aserción pgTAP nueva que verifica que una operación falla con un código de error de Postgres (`23505`, `23502`, `23514`, etc.), a diferencia de verificar el texto de una excepción propia levantada con `raise exception 'MI_CODIGO'`.
+
+**Mecánica:** `throws_ok(sql, code_or_pattern, description)` de 3 argumentos funciona bien para excepciones propias (`raise exception 'LIST_X_ROLE_NOT_PERMITTED'`) porque el segundo argumento se compara contra el mensaje completo de la excepción, y ese mensaje literalmente ES el código. Para un SQLSTATE nativo de Postgres (violación de constraint, FK, etc.) el mensaje real nunca es el código -- es el texto que Postgres genera (`duplicate key value violates unique constraint "..."`), así que pasar la descripción como tercer argumento hace que pgTAP la compare contra ESE mensaje real y falle, aunque el SQLSTATE capturado sea exactamente el esperado. La forma correcta de 4 argumentos es `throws_ok(sql, sqlstate, null, description)` -- el `null` en la posición del mensaje le dice a pgTAP "no compares el mensaje, solo el SQLSTATE", y el cuarto argumento sí es la descripción libre. Este precedente ya existía en el propio repo (`form_sessions_foundation_s5_004.test.sql`, S5-004) pero no se siguió al escribir una aserción nueva de SQLSTATE en otro archivo.
+
+**Fix aplicado:** agregar el `null` explícito entre el SQLSTATE y la descripción en cualquier `throws_ok` que verifique un código de error nativo de Postgres, nunca la forma de 3 argumentos.
+
+**Caso real:** S5-008 iteración 9 (2026-08-09), `lead_attribution_read_rpc_s5_008.test.sql` -- la aserción del índice único parcial (`lead_attribution_one_initial_per_lead`) fallaba con `wanted: 23505: <descripción>` vs `caught: 23505: duplicate key value violates unique constraint...` en el primer intento, pese a que el índice funcionaba exactamente como se diseñó; corregido agregando el `null`, segundo intento en verde.
+
+---
+
 ## Patrón: en un test pgTAP, verificar una tabla `restricted.*` cuyo `service_role` no tiene `select` -- leer siempre vía `set local role authenticated` + la policy RLS existente, nunca como `service_role` directo
 
 **Cuándo aplica:** cualquier aserción pgTAP nueva (verificación de fila persistida, conteo, o cualquier lectura fuera de las funciones RPC ya cubiertas por privilege checks) sobre una tabla `restricted.*` cuya fila "System worker" en `access-control-matrix.md` §14 no incluye la letra `R` (ej. `form_submissions` "C U P", `lead_status_events` "C P controlled") -- S1-010/las migraciones de este segmento nunca otorgan `select` a `service_role` en esos casos, deliberadamente.
