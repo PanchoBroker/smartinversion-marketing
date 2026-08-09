@@ -44,9 +44,16 @@ select ok(
     'Anonymous has no privilege on form_sessions'
 );
 
+-- Superseded by S5-008 iteration 8 (2026-08-09):
+-- form_sessions_role_based_rls_s5_008.sql connects `authenticated` with
+-- an administrator-only RLS policy -- "Foundation, not yet connected" no
+-- longer holds. Same documented pattern as every other domain's RLS-
+-- connection iteration (Registro de Patrones, "Foundation, not yet
+-- connected -> RLS por rol en sprint posterior"): the obsolete assertion
+-- is updated in place, the new migration is never redesigned to dodge it.
 select ok(
-    not has_table_privilege('authenticated', 'public.form_sessions', 'SELECT'),
-    'Authenticated has no privilege on form_sessions (Foundation, not yet connected)'
+    has_table_privilege('authenticated', 'public.form_sessions', 'SELECT'),
+    'Authenticated now has SELECT on form_sessions (RLS-guarded, S5-008 iteration 8)'
 );
 
 select ok(
