@@ -1,0 +1,17 @@
+## Summary
+
+- S5-010: Gate G5 review, closing Phase 5 ("Distribución"/"Medición"). New `docs/g5-gate-review.md`, following the same structure and rigor `docs/g4-gate-review.md` established.
+- Full F5 delivery chain (S5-001 through S5-009, PRs #65-#120, 56 pull requests) reconstructed and verified against real `git log --oneline 500aed8..main` output (`500aed8` is G4's own reviewed baseline) plus `indice-maestro.md`'s real-evidence citations for the four most recent merges the user's local log capture didn't reach.
+- Contract §12's five Gate G5 target conditions checked individually against real evidence: 4/5 met directly; the 5th ("a non-`prefiltered` synthetic contact cannot generate automatic delivery") is true by construction but lacks a dedicated negative-case test — flagged as a non-blocking follow-up, not silently marked complete.
+- Gate G4's twelve §8 conditions rechecked: condition 9 ("future publication eligibility... implemented and tested before any Phase 5 scheduling/publication route depends on it") — the one condition G4 wrote specifically for F5 — is now closed, with real S5-002 evidence. Every other surviving condition carries forward unchanged.
+- **One real documentation error found and corrected by this review**: `indice-maestro.md`'s S5-008 segment-closure notes still list commercial_owner's "Related" qualifier on `publications`/`tracking_links` as a Gate G5 pendiente. It isn't — S5-006 iteration 2 (PR #99/#100) already implemented and behaviorally tested it, independently confirmed again by this session's own S5-009 work. Not fixed in `indice-maestro.md` by this PR (documentation-completeness follow-up, listed in the gate review's own Section 12) — disclosed rather than silently repeated.
+- New gap surfaced: `publications`' controlled state-transition service (contract §4.2 — actor/reason/correlation audit record on every transition) was deliberately deferred at S5-002 iteration 1 and never picked up by any later F5 segment. Recorded as Condition 3 of the gate review, not previously visible as a named gap anywhere in the project's own tracking.
+- `docs/decision-register.md`: adds **D-17** (the Phase 4/Phase 5/Phase 6 scope boundary `docs/f5-distribution-measurement-contract.md` §3 itself instructed be entered "following the same pattern D-13, D-15 and D-16 already established" — never done during F5's nine implementation segments). Renumbers sections 19-20 to 20-21 to keep sequential numbering after the insertion.
+- **Recommendation only, not self-ratified**: unlike Gate G4 (where the product owner had given a standing delegation for that specific review), this record recommends ADVANCE CONDITIONALLY but leaves ratification to the product owner explicitly, since no equivalent delegation is on record for G5.
+- Production authorization remains NOT GRANTED — every real production blocker (D-06/D-07/D-08, MFA/session controls, financial-model currency convention, CI/dependency warnings) is untouched by F5, exactly as G4 already carried them forward.
+
+## Test plan
+
+- N/A — this PR is documentation-only (a gate review record and a decision-register entry), no migration, route or test file changed. F5's own cumulative evidence (1957/1957 pgTAP assertions, 468/468 Vitest tests) is cited from real prior sessions' output, not re-run by this PR.
+- [x] `git diff --check` clean.
+- [x] Section numbering in `docs/decision-register.md` verified sequential (1-21) after the D-17 insertion.

@@ -5,7 +5,7 @@
 - **Work item:** S0-019 / Gate G0 review
 - **Status:** Under Gate G0 review
 - **Owner:** Smartinversion product owner
-- **Updated:** 2026-08-05 (Gate G4: D-15/D-16 added)
+- **Updated:** 2026-08-09 (Gate G5: D-17 added)
 - **Purpose:** Record the status, owner, rationale, evidence and blocking effect of decisions D-01 through D-16.
 
 ## 1. Decision states
@@ -38,6 +38,7 @@
 | D-14 | `HYP-` hypothesis-code and `CNT-` content-item-code prefix ratification | Decided | Product owner | None for Sprint 3/Gate G3 |
 | D-15 | S4-008 "Related" access-control qualifier reading (direct-participation) | Decided | Product owner | None for Sprint 4/Gate G4 |
 | D-16 | S4-009 `qa_defects` resolution reading (active `approver` only) | Decided | Product owner | None for Sprint 4/Gate G4 |
+| D-17 | Phase 4/Phase 5/Phase 6 scope boundary (Producción/QA vs. Distribución/Medición vs. Aprendizaje) | Decided | Product owner | None for Sprint 5/Gate G5 |
 
 ## 3. D-01 — Hosting account and plan
 
@@ -484,7 +485,42 @@ Confirmed by the product owner on 2026-08-04 during S4-009 implementation (PR #6
 - S4-009's existing resolution trigger already implements this reading; no migration or code change required by this decision.
 - S4-010's rebanada 6 pgTAP assertions are the real evidence proving this reading, not merely restating it.
 
-## 19. Gate G0 interpretation required
+## 19. D-17 — Phase 4/Phase 5/Phase 6 scope boundary
+
+### Decision
+
+Extending the same reasoning D-13 already applied one boundary earlier: the single `content_item` lifecycle `docs/core-schema.md` §11.5 fixes (`backlog → researching → ready → preproduction → generation → editing → qa → scheduled → published → measuring → closed`) is partitioned as follows.
+
+- **Phase 4 ("Producción/QA")** owns every state through `qa`, plus the exact `content_versions` approval gate that makes a version eligible for what comes next.
+- **Phase 5 ("Distribución"/"Medición")** owns `scheduled`, `published` and the production side of `measuring` — that is, `publications`, `tracking_links`, the public capture and lead-delivery pipeline, and the raw measurement layer `metric_definitions`/`metric_observations`/`campaign_reports`.
+- **Phase 6 ("Aprendizaje")** owns `learning_records` only — the qualitative hypothesis/observation/interpretation layer. F6 was already built as an isolated parallel track (no FK to `campaigns`, no RLS yet, still untracked in git as of its own creation) independently of F4/F5's own progress, per the standing Registro de Patrones entry ("F6 es un track paralelo, no una fase futura fuera de secuencia"). `learning_records` is not an F5 deliverable and F5 did not need it to exist to close its own scope; the two remain independently useful and are reconciled, if ever needed, only when a later segment explicitly wires `metric_observations` into `learning_records.evidence`.
+
+### Rationale
+
+`docs/f5-distribution-measurement-contract.md` §3 (S5-001) already fixed this exact boundary statement as the F5 equivalent of D-13, and explicitly said it "SHOULD be entered into `docs/decision-register.md` as a new decision once S5-001 is reviewed, following the same pattern D-13, D-15 and D-16 already established." That entry was never made during F5's nine implementation segments — this decision closes that gap at Gate G5, the same review this record's own Section 12 requires it of.
+
+### Scope
+
+This decision governs the Phase 4/Phase 5/Phase 6 boundary only. It does not reopen or change the underlying functional or technical requirements of any of the three phases, and it does not authorize any phase beyond what its own gate review has separately granted.
+
+### Evidence
+
+- `docs/f5-distribution-measurement-contract.md` §3 (the boundary statement itself, verbatim)
+- `docs/core-schema.md` §11.5 (the single `content_item` lifecycle this boundary partitions)
+- D-13 (the Phase 3/Phase 4 precedent this decision extends)
+- `docs/g5-gate-review.md` §3.1/§6/§12 (the review that formally closes this gap)
+- Registro de Patrones ("F6 es un track paralelo, no una fase futura fuera de secuencia")
+
+### Approval
+
+Ratified through the Gate G5 review recorded in `docs/g5-gate-review.md`, per S5-001's own instruction that this boundary be entered following the D-13/D-15/D-16 pattern.
+
+### Affected implementation
+
+- No migration or application-code change required — every F5/F6 migration already implements this boundary as built; this decision formally ratifies the boundary, it does not change it.
+- `docs/f5-distribution-measurement-contract.md` §3 remains the primary normative text; this entry is its formal decision-register ratification, not a restatement requiring the contract itself to change.
+
+## 20. Gate G0 interpretation required
 
 Gate G0 must not silently treat D-06 or D-07 as complete.
 
@@ -502,7 +538,7 @@ Under every outcome:
 - no draft consent wording may be presented as legally approved;
 - no retention period may be inferred.
 
-## 20. Change control
+## 21. Change control
 
 A decision change must record:
 
