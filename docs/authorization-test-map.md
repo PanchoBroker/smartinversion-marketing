@@ -6,9 +6,22 @@
   to object, operation and role"). This document is that mapping. It does
   not define new policy -- `docs/access-control-matrix.md` remains the
   normative authorization model.
-- **Updated:** 2026-08-07 (S3-008: opportunities/campaigns/content Private
-  API and PostgreSQL rows added; Storage confirmed already covered by
-  S1-012; a live RLS regression in S3-007 found and fixed)
+- **Updated:** 2026-08-09 (S5-009 planning: scope fixed for the transversal
+  F5 cross-surface authorization test suite, `docs/f5-distribution-
+  measurement-contract.md` Section 11; no test file written yet, see
+  Section 8)
+- **Note (2026-08-09):** S4-010 (`cross_surface_authorization_test_suite_
+  s4_010.test.sql`, F4 scenes/generation_attempts/assets/asset_links/
+  qa_reviews/qa_defects/approvals slice) landed without a corresponding
+  update to this document, breaking the "extend this document rather than
+  create a parallel one" rule Section 7 already states. Its own corrective
+  migration explicitly cites this document's cross-surface pattern as the
+  reason the regression was caught, so the gap is a documentation miss, not
+  a methodology one. Recorded here rather than silently backfilled, since
+  reconstructing S4-010's exact table/role/regression map from the F5
+  planning pass risks transcription error; closing this gap is a
+  non-blocking pendiente for whoever next touches F4 traceability, tracked
+  in Testigo's pendientes list alongside repomix/Graphify.
 
 ## 1. Scope
 
@@ -357,3 +370,163 @@ than create a parallel one.
   content -- every new assertion names the control being tested (e.g.
   "A creative owner sees exactly the content_claims row linked to the
   approved claim"), consistent with the S1-012/S2-010 precedent.
+
+## 8. S5-009 scope (planning, 2026-08-09 -- no test file written yet)
+
+`docs/f5-distribution-measurement-contract.md` Section 11 assigns S5-009
+"the transversal F5 cross-surface authorization test suite." This section
+fixes what that means concretely, derived from what every F5 structural RLS
+test already defers to it by name (`publications_tracking_links_role_based_
+rls_s5_006.test.sql`, its commercial_owner counterpart, `form_sessions_
+role_based_rls_s5_008.test.sql`, `metric_definitions_observations_role_
+based_rls_s5_007.test.sql`), not restated from the contract alone.
+
+### 8.1 In scope -- PostgreSQL surface, behavioral per-row role-simulated tests
+
+New file: `supabase/tests/database/cross_surface_authorization_test_suite_
+s5_009.test.sql`, landing in slices (one table/role group per slice, each
+run for real before the next is written), the same discipline
+`cross_surface_authorization_test_suite_s4_010.test.sql` already used and
+documented the reasoning for.
+
+- **`docs/access-control-matrix.md` Section 12 (Publication matrix)** --
+  `publications` and `tracking_links`, unqualified cells only: publisher
+  (`L R C U T` / `L R C U`), approver (`L R A` / `R`), campaign_manager
+  (`L R` / `L R`), results_analyst (`L R` / `L R`). commercial_owner's
+  "Related" qualifier is already proven behaviorally
+  (`publications_tracking_links_commercial_owner_related_rls_s5_006.test.sql`,
+  S5-006 iteration 2); System worker's `P` controlled cell is already
+  covered. **Slice 1 landed 2026-08-09 -- 45/45 passing** (SELECT/INSERT/
+  UPDATE/DELETE for all four unqualified roles plus administrator/no-role/
+  anon exclusion, on both tables, `draft -> ready` only per the file's own
+  header), confirmed against a from-scratch Postgres + pgTAP instance
+  running the full real migration chain (Files=60, Tests=1908, Result:
+  PASS -- no other file regressed).
+  - **Real regression found and fixed** (first local run):
+    `generate_tracking_token()` (S5-003 iteration 1) was still locked to
+    `service_role`-only EXECUTE, so every authenticated `tracking_links`
+    INSERT that omits `token` -- the only shape the real route
+    (`POST /api/v1/tracking-links`) ever sends -- failed with "permission
+    denied for function generate_tracking_token", live and
+    production-breaking since S5-006 iteration 1 opened direct publisher
+    INSERT on this table. Same bug class S4-001 (`generate_claim_code`) and
+    S3-008 (the four `generate_*_code` functions) already found for the
+    identical DEFAULT-expression-runs-as-caller reason. Fixed by
+    `20260913000000_generate_tracking_token_authorization_s5_009.sql`
+    (grants EXECUTE to `authenticated`). This also obsoleted one assertion
+    in `tracking_links_foundation_s5_003.test.sql` ("Authenticated cannot
+    execute generate_tracking_token") the same way S5-006 iteration 1 had
+    already obsoleted that file's SELECT-privilege assertion without the
+    EXECUTE one being updated to match -- corrected in place, not deleted.
+  - **Test-authoring mistake found and fixed** (second local run, no schema
+    change involved): four UPDATE-denial assertions on `publications` and
+    five on `tracking_links` were originally written as `throws_ok(...,
+    '42501', ...)`, copying the INSERT-denial shape. UPDATE denial-by-
+    missing-policy is not an error in Postgres RLS -- the USING clause
+    filters the candidate row set to empty and the statement completes
+    having changed nothing, the same "zero rows match USING, no exception"
+    shape `publications_tracking_links_commercial_owner_related_rls_
+    s5_006.test.sql` already proved with `is_empty()`, never `throws_ok()`,
+    for its own owner-B-row case. All nine assertions rewritten to
+    `is_empty(... returning id)`.
+- **Section 14 (Leads and PII matrix)** -- exactly one gap: administrator's
+  direct-table `Restricted L R` on `public.form_sessions`
+  (`form_sessions_role_based_rls_s5_008.test.sql` proved only that the
+  policy exists, not that an administrator session sees the rows; its own
+  header names S5-009 as the owner of this gap). Every other Section 14 row
+  (`form_submissions`, `leads`, `lead_consents`, `lead_attribution`,
+  `lead_deliveries`, `lead_status_events`) already received full
+  role-simulated behavioral coverage inline in its own S5-008 RPC test file.
+  **Slice 2 landed 2026-08-09** (11 new assertions, appended to the same
+  file after slice 1's own DELETE proofs, `plan()` raised 45 -> 56):
+  administrator sees all three fixture rows; no-role, campaign_manager,
+  results_analyst, publisher and approver all see zero (campaign_manager/
+  results_analyst confirmed "Aggregate only" -- no direct-row policy --
+  without repeating the RPC proof S5-008's own test already did; publisher/
+  approver stand in for Section 14's bare "Other internal roles: --" cell,
+  reusing profiles slice 1 already fixtured rather than creating new ones);
+  anon excluded; INSERT/UPDATE/DELETE denied for administrator (the only
+  role with any grant at all here), since `authenticated` only ever
+  received SELECT on this table. **56/56 passing**, confirmed against a
+  from-scratch Postgres + pgTAP instance running the full real migration
+  chain (Files=60, Tests=1919, Result: PASS -- no other file regressed).
+  First real run found one test-authoring bug (not a schema issue): the
+  slice 2 fixture INSERT initially ran under slice 1's last `set local role
+  authenticated` session (publisher's JWT, never reset), which has no
+  INSERT grant on `form_sessions` at all -- fixed by adding `reset role;`
+  before the fixture, restoring the unprivileged/superuser context every
+  other fixture in this file already relies on implicitly.
+- **Section 15 (Measurement matrix)** -- `metric_definitions` (results_
+  analyst, campaign_manager, commercial_owner, investment_analyst -- all
+  bare/unqualified cells) and `metric_observations` (results_analyst,
+  campaign_manager, commercial_owner -- unqualified cells only).
+  investment_analyst's `Related R` on `metric_observations` and "Other
+  roles: Related aggregate R" are qualified cells the S5-007 migration's own
+  header already flags as having no comparable existing resolution pattern
+  -- out of scope, deferred to Gate G5 (S5-010) alongside every other
+  unresolved "Related" qualifier F2/F3/F4 already carry forward (Section 5
+  above). **Slice 3 landed 2026-08-09** (38 new assertions, appended after
+  slice 2's own DELETE proofs, `plan()` raised 56 -> 94; closes this
+  section's full planned scope): results_analyst/campaign_manager/
+  commercial_owner/investment_analyst all see both fixture
+  `metric_definitions` rows (bare `R` cells included); on
+  `metric_observations`, results_analyst/campaign_manager/commercial_owner
+  see both fixture rows but investment_analyst sees zero -- the
+  metric_definitions/metric_observations asymmetry the unimplemented
+  "Related R" qualifier produces is exercised explicitly, not assumed.
+  UPDATE denial on `metric_definitions` uses `is_empty()` (RLS row-
+  filtering), reusing slice 1's own lesson from the start rather than
+  repeating that mistake; UPDATE denial on `metric_observations` uses
+  `throws_ok()` instead, since no role -- not even results_analyst --
+  ever received an UPDATE grant at the table-privilege level at all
+  (append-preserving, Section 7.2), the same missing-grant shape slice 2
+  proved for `form_sessions`. Two new roles fixtured (commercial_owner,
+  investment_analyst) reusing the campaign_manager/results_analyst/
+  administrator/no-role profiles and campaign A already alive from slice 1.
+  **94/94 passing on the first real run** -- confirmed against a
+  from-scratch Postgres + pgTAP instance running the full real migration
+  chain (Files=60, Tests=1957, Result: PASS -- no other file regressed).
+  No corrective migration or test-authoring fix needed this time; both
+  lessons slices 1 and 2 recorded (`is_empty()` over `throws_ok()` for
+  RLS-filtered UPDATE denial, `reset role;` before every new slice's own
+  fixture) were applied from the start.
+
+### 8.1.1 Status
+
+All three planned slices have landed and pass:
+`cross_surface_authorization_test_suite_s5_009.test.sql` now carries 94
+assertions across `publications`/`tracking_links` (Section 12),
+`form_sessions` (Section 14) and `metric_definitions`/`metric_observations`
+(Section 15) -- the full scope this section originally planned. Two real
+regressions were found and fixed along the way (`generate_tracking_token()`
+missing `authenticated` EXECUTE, a genuine production bug; and two
+test-authoring mistakes in this file itself, both corrected in place). No
+table or role cell named in Section 8.1's original plan remains untested.
+Only the qualified "Related" cells Section 8.1 always scoped out (Gate G5
+disposition, not S5-009) and the Private UI/Storage surfaces (Section 8.2,
+not applicable to F5 yet) remain outside this item.
+
+### 8.2 Already covered -- not S5-009 scope
+
+- **Private API** -- every F5 route shipped with its own role-simulated
+  authorization test as it was built (`publications-route-authorization.
+  test.ts`, `tracking-links-route-authorization.test.ts`, `form-sessions-
+  route-authorization.test.ts`, `public-form-sessions-route.test.ts`,
+  `metric-definitions-route-authorization.test.ts`, `metric-observations-
+  route-authorization.test.ts`), confirmed against
+  `publications-route-authorization.test.ts` (real publisher-creates,
+  real role-denial cases, not structural).
+- **Private UI** -- no F5 UI exists yet; deferred like every prior phase's
+  UI surface (Section 5).
+- **Storage** -- the F5 contract introduces no new bucket or object type;
+  unchanged since S1-012, same posture S3-008 and S4-010 both recorded.
+
+### 8.3 Acceptance basis
+
+No F5 requirements-traceability document exists yet (`docs/requirements-
+traceability-f5.md` has not been created); S5-009's acceptance basis is
+`docs/f5-distribution-measurement-contract.md` Section 11 directly, plus
+this document's own standing Section 10.12 purpose statement. This should
+be reconciled if/when a Section-F5 traceability document is created,
+consistent with how Sections 6/7 above cite F2/F3's own traceability
+sections.
