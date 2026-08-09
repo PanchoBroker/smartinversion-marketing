@@ -617,6 +617,15 @@ The full public payload must not be copied into technical logs.
 
 Outbox payloads contain only the minimum information required by the consumer.
 
+### 10.22 `lead_status_events`
+
+- `lead_id`
+- `status_code`
+- `source`
+- `actor_profile_id`
+
+Approved 2026-08-09 (S5-008 iteration 7), appended after 10.21 rather than inserted between 10.19 and 10.20 to avoid renumbering. No free-text notes field. `status_code` and `source` are free text with no enumerated vocabulary yet, same treatment as `leads.status`/`leads.classification`. `actor_profile_id` is nullable.
+
 ## 11. Lifecycle states
 
 ### 11.1 Opportunity

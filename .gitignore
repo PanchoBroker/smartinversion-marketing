@@ -54,3 +54,6 @@ next-env.d.ts
 
 # secret scanning (gitleaks)
 gitleaks-report.json
+
+# graphify tool output/cache (local only, never meant to be committed)
+/graphify-out/
