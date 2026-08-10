@@ -39,6 +39,7 @@
 | D-15 | S4-008 "Related" access-control qualifier reading (direct-participation) | Decided | Product owner | None for Sprint 4/Gate G4 |
 | D-16 | S4-009 `qa_defects` resolution reading (active `approver` only) | Decided | Product owner | None for Sprint 4/Gate G4 |
 | D-17 | Phase 4/Phase 5/Phase 6 scope boundary (Producción/QA vs. Distribución/Medición vs. Aprendizaje) | Decided | Product owner | None for Sprint 5/Gate G5 |
+| D-18 | `learning_records` access-control qualifiers: commercial_owner "A" implemented, investment_analyst "Evidence-related" and other-roles "Related" deferred | Decided | Product owner | None for F6 integration close |
 
 ## 3. D-01 — Hosting account and plan
 
@@ -520,7 +521,41 @@ Ratified through the Gate G5 review recorded in `docs/g5-gate-review.md`, per S5
 - No migration or application-code change required — every F5/F6 migration already implements this boundary as built; this decision formally ratifies the boundary, it does not change it.
 - `docs/f5-distribution-measurement-contract.md` §3 remains the primary normative text; this entry is its formal decision-register ratification, not a restatement requiring the contract itself to change.
 
-## 20. Gate G0 interpretation required
+## 20. D-18 — `learning_records` access-control qualifiers
+
+### Decision
+
+Of the three qualifiers `docs/access-control-matrix.md` Section 15 names for `learning_records` beyond the unqualified `results_analyst`/`campaign_manager` cells, only commercial_owner's "A" (approve or reject) is implemented, through a dedicated function (`public.set_learning_record_approval()`, `20260919000000_learning_records_commercial_owner_approval_s6.sql`) rather than a plain RLS grant, because the legend (Section 7) is explicit that update permission does not imply transition/approval permission. The other two are formally deferred, not implemented, and not given an invented physical mapping:
+
+- investment_analyst's "Evidence-related `L R U`" — `learning_records.evidence` is free text with no link to `metric_observations` or any other evidence-bearing table. D-17's own Rationale already anticipated this: reconciliation is deferred "only when a later segment explicitly wires `metric_observations` into `learning_records.evidence`," which has not happened.
+- other roles' "Related `R`" — `learning_records.campaign_id` has no FK (original S6-006 comment: "referencia lógica a campaigns, sin FK física por ahora"), so there is no real join to express "related to my campaign" for any role.
+
+### Rationale
+
+Implementing either deferred qualifier today would require inventing a mapping the matrix does not define — the same posture already rejected project-wide for unsupported qualifiers (D-15's Rationale; Gate G3 Section 8 Condition 4's fail-closed requirement, still open and carried forward). Commercial_owner's "A" is different: it does not require a new relational link, only a gated state transition on a column the table already has (`status`), so it was implemented rather than deferred alongside the other two.
+
+### Scope
+
+This decision governs `learning_records` access-control qualifiers only. It does not resolve "Evidence-related", "Related" or any other named unsupported qualifier elsewhere in the matrix (F2/F3's `financial_models`/`investment_theses`/opportunities-campaigns-content qualifiers, F5's Section 15 `metric_observations` "Related aggregate R", or the `commercial_liaison` "Related" qualifier on `form_sessions`) — all remain open under Gate G3 Section 8 Condition 4, unchanged by this entry.
+
+### Evidence
+
+- `docs/access-control-matrix.md` Section 15 (`learning_records` row) and Section 7 (operation legend)
+- `supabase/migrations/20260919000000_learning_records_commercial_owner_approval_s6.sql`
+- `supabase/tests/database/learning_records_commercial_owner_approval_s6.test.sql` (11 assertions, including that commercial_owner cannot bypass the function with a raw UPDATE)
+- D-15 (the precedent for reading undefined/unsupported qualifiers narrowly rather than inventing a mapping)
+- D-17 (the Phase 6 boundary decision that first anticipated the `evidence`/`metric_observations` reconciliation point)
+
+### Approval
+
+Delegated to the assistant's judgment by the product owner (Francisco) during this session, per the same standing delegation already used for Gate G4/G5 ("realicemos todo lo que sea óptimo para el proyecto... a prueba de errores futuros").
+
+### Affected implementation
+
+- New migration and pgTAP test as listed under Evidence — pending validation by the product owner against a real Postgres instance (`npx supabase db reset && npx supabase test db`).
+- `indice-maestro.md` Bloque B3 to be updated once that validation succeeds.
+
+## 21. Gate G0 interpretation required
 
 Gate G0 must not silently treat D-06 or D-07 as complete.
 
@@ -538,7 +573,7 @@ Under every outcome:
 - no draft consent wording may be presented as legally approved;
 - no retention period may be inferred.
 
-## 21. Change control
+## 22. Change control
 
 A decision change must record:
 

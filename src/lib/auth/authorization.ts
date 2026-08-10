@@ -83,6 +83,8 @@ export const AUTHORIZATION_ACTIONS = [
   "metric_definition.write",
   "metric_observation.read",
   "metric_observation.write",
+  "learning_record.read",
+  "learning_record.write",
   "lead.read",
   "lead.write",
   "lead.export",
@@ -582,6 +584,30 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
   // either.
   "metric_observation.read": TEAM_ROLES,
   "metric_observation.write": ["results_analyst"],
+
+  // F6 integration correction (2026-08-10): learning_records (S6-006,
+  // docs/access-control-matrix.md Section 15, "learning_records" row --
+  // `L R C U T`). Same one-action-per-table, admit-then-let-RLS-narrow
+  // convention as metric_definition.*/metric_observation.* immediately
+  // above: read stays TEAM_ROLES, and the RLS migration
+  // (20260915000001_f6_learning_records_rls_and_view_invoker_fix.sql)
+  // only grants a SELECT policy to results_analyst, campaign_manager and
+  // commercial_owner (the row's unqualified cells -- commercial_owner's
+  // own cell is `L R A`, and "A" is deliberately not implemented here,
+  // same as metric_definitions' deferred "Approved" qualifier: no
+  // physical approval state exists on learning_records to reuse, only
+  // the validated/rejected/inconclusive/invalidated/pending vocabulary).
+  // investment_analyst's "Evidence-related L R U" and "Other roles:
+  // Related R" are both qualified with no physical backing in this
+  // schema and are left unimplemented, same discipline as every other
+  // open "Related"/qualified cell in this matrix. Write matches the RLS
+  // migration's only INSERT/UPDATE policies (results_analyst,
+  // campaign_manager) -- the matrix's `T` (transition, e.g. moving a
+  // record toward a validated/rejected state) folds into the same UPDATE
+  // grant, no separate physical sub-resource exists for it, mirroring
+  // metric_definitions' own `M` simplification.
+  "learning_record.read": TEAM_ROLES,
+  "learning_record.write": ["results_analyst", "campaign_manager"],
 
   // S5-008 (iteration 3/N): widened from the original S1-003 reservation
   // (administrator, commercial_liaison only) to match docs/access-control-

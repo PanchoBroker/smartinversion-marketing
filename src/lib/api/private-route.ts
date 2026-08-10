@@ -65,6 +65,44 @@ function activeRoleCodes(rows: AssignmentRow[]): string[] {
   return [...new Set(codes)].sort();
 }
 
+// F6 integration follow-up (2026-08-10): extracted out of
+// authorizePrivateRoute so a Server Component (which has no `Request` to
+// hand authorizePrivateRoute -- see src/app/analytics/page.tsx) can resolve
+// "which active human roles does this profile hold" without duplicating
+// the profile lookup + role_assignments query inline. Deliberately returns
+// role codes only, no authorization decision -- callers that need the full
+// S1-003 policy evaluation (action-gated, audited) still go through
+// authorizePrivateRoute; this is only for the narrower "does this profile
+// hold role X, to decide whether to call an X-only RPC bridge" case.
+export async function resolveProfileAndRoleCodes(
+  serviceClient: SupabaseClient,
+  authUserId: string,
+): Promise<{ profileId: string; roleCodes: string[] } | null> {
+  const { data: profile } = await serviceClient
+    .from("profiles")
+    .select("id, account_status")
+    .eq("auth_user_id", authUserId)
+    .maybeSingle();
+
+  if (!profile) {
+    return null;
+  }
+
+  const { data: assignments } = await serviceClient
+    .from("role_assignments")
+    .select(
+      "valid_from, valid_until, revoked_at, role:roles(code, is_machine)",
+    )
+    .eq("profile_id", profile.id);
+
+  return {
+    profileId: profile.id,
+    roleCodes: activeRoleCodes(
+      (assignments ?? []) as unknown as AssignmentRow[],
+    ),
+  };
+}
+
 function selectExercisedRole(
   request: Request,
   subject: AuthorizationSubject,
