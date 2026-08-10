@@ -1,5 +1,8 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/lib/supabase/server';
+import { createServiceRoleClient } from '@/lib/supabase/service-role';
+import { resolveProfileAndRoleCodes } from '@/lib/api/private-route';
+import { resolveCorrelationId } from '@/lib/observability/correlation';
 
 // F6 integration correction (2026-08-10): this page had no auth gate at
 // all -- reachable by anyone, unauthenticated. Fixed at the middleware
@@ -47,10 +50,93 @@ async function getFunnelKPIs() {
   return data || [];
 }
 
+// F6 integration follow-up (2026-08-10, pendiente #3 UI wiring): campaign-
+// scoped leads/form_submissions counts, campaign_manager only
+// (docs/access-control-matrix.md Section 14 -- see
+// 20260916000000_f6_funnel_lead_form_submission_campaign_aggregates.sql for
+// why this is a role-gated RPC bridge, not a plain view join). Resolves the
+// current profile's active roles directly (resolveProfileAndRoleCodes,
+// extracted from authorizePrivateRoute) rather than round-tripping through
+// /api/v1/analytics/campaign-funnel -- this is a Server Component, not a
+// Request handler, so there is no inbound Request to hand
+// authorizePrivateRoute; a same-origin fetch would need to re-forward
+// cookies for no benefit over calling the service client directly, the way
+// every other restricted-schema bridge in this codebase already does.
+// Returns null (renders nothing) for every other role -- same
+// admit-then-shape convention as the rest of this codebase, not an error
+// state. Reminder: D-06/D-07 (docs/decision-register.md Sections 8-9)
+// remain "Conditioned" -- these counts can only ever reflect synthetic
+// (is_test) rows today.
+interface CampaignFunnelAggregate {
+  formSubmissionsByCampaign: Array<{
+    campaign_id: string;
+    validation_status: string;
+    submission_count: number;
+  }>;
+  prefilteredLeadsByCampaign: Array<{
+    campaign_id: string;
+    classification: string;
+    lead_count: number;
+  }>;
+}
+
+async function getCampaignFunnelAggregate(): Promise<CampaignFunnelAggregate | null> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return null;
+  }
+
+  const serviceClient = await createServiceRoleClient();
+
+  if (!serviceClient) {
+    return null;
+  }
+
+  const resolved = await resolveProfileAndRoleCodes(serviceClient, user.id);
+
+  if (!resolved || !resolved.roleCodes.includes('campaign_manager')) {
+    return null;
+  }
+
+  const correlationId = resolveCorrelationId(null);
+
+  const [submissionsResult, leadsResult] = await Promise.all([
+    serviceClient.rpc('aggregate_form_submissions_by_campaign', {
+      p_actor_profile_id: resolved.profileId,
+      p_exercised_role: 'campaign_manager',
+      p_correlation_id: correlationId,
+    }),
+    serviceClient.rpc('aggregate_prefiltered_leads_by_campaign', {
+      p_actor_profile_id: resolved.profileId,
+      p_exercised_role: 'campaign_manager',
+      p_correlation_id: correlationId,
+    }),
+  ]);
+
+  if (submissionsResult.error || leadsResult.error) {
+    console.error(
+      'Error fetching campaign funnel aggregate:',
+      submissionsResult.error || leadsResult.error,
+    );
+    return null;
+  }
+
+  return {
+    formSubmissionsByCampaign: submissionsResult.data ?? [],
+    prefilteredLeadsByCampaign: leadsResult.data ?? [],
+  };
+}
+
 export const dynamic = 'force-dynamic';
 
 export default async function AnalyticsDashboard() {
   const kpis = await getFunnelKPIs();
+  const campaignFunnel = await getCampaignFunnelAggregate();
 
   // Cálculos agregados globales (suma de todas las campañas)
   const totalLeads = kpis.reduce((acc, curr) => acc + (curr.prefiltered_leads || 0), 0);
@@ -137,6 +223,81 @@ export default async function AnalyticsDashboard() {
           </table>
         </div>
       </section>
+
+      {/* Leads y formularios reales por campaña — solo campaign_manager
+          (Sección 14 access-control-matrix.md: "Aggregate only" cell).
+          Datos sintéticos hasta que D-06/D-07 se aprueben
+          (docs/decision-register.md Secciones 8-9). No renderiza nada para
+          otros roles, mismo criterio admit-then-shape del resto del
+          dashboard. */}
+      {campaignFunnel && (
+        <section className="border rounded-xl overflow-hidden">
+          <div className="bg-muted/50 px-6 py-4 border-b">
+            <h2 className="font-semibold">Leads y Formularios por Campaña (datos sintéticos)</h2>
+            <p className="text-xs text-muted-foreground mt-1">
+              Agregado desde restricted.leads/restricted.form_submissions • Solo campaign_manager • No autorizado para producción real (D-06/D-07 pendientes)
+            </p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm text-left">
+              <thead className="bg-muted/30 text-xs uppercase font-medium text-muted-foreground">
+                <tr>
+                  <th className="px-6 py-3">Campaña</th>
+                  <th className="px-6 py-3 text-right">Formularios (por estado)</th>
+                  <th className="px-6 py-3 text-right">Leads (por clasificación)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {campaignFunnel.formSubmissionsByCampaign.length === 0 &&
+                campaignFunnel.prefilteredLeadsByCampaign.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} className="px-6 py-8 text-center text-muted-foreground">
+                      Sin envíos ni leads sintéticos registrados aún.
+                    </td>
+                  </tr>
+                ) : (
+                  Array.from(
+                    new Set([
+                      ...campaignFunnel.formSubmissionsByCampaign.map((row) => row.campaign_id),
+                      ...campaignFunnel.prefilteredLeadsByCampaign.map((row) => row.campaign_id),
+                    ]),
+                  ).map((campaignId) => {
+                    const campaignCode =
+                      kpis.find((row) => row.campaign_id === campaignId)?.campaign_code ||
+                      campaignId;
+                    const submissions = campaignFunnel.formSubmissionsByCampaign.filter(
+                      (row) => row.campaign_id === campaignId,
+                    );
+                    const leads = campaignFunnel.prefilteredLeadsByCampaign.filter(
+                      (row) => row.campaign_id === campaignId,
+                    );
+
+                    return (
+                      <tr key={campaignId} className="hover:bg-muted/20 transition-colors">
+                        <td className="px-6 py-4 font-medium">{campaignCode}</td>
+                        <td className="px-6 py-4 text-right">
+                          {submissions.length === 0
+                            ? '—'
+                            : submissions
+                                .map((row) => `${row.validation_status}: ${row.submission_count}`)
+                                .join(' · ')}
+                        </td>
+                        <td className="px-6 py-4 text-right">
+                          {leads.length === 0
+                            ? '—'
+                            : leads
+                                .map((row) => `${row.classification}: ${row.lead_count}`)
+                                .join(' · ')}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
     </div>
   );
 }
