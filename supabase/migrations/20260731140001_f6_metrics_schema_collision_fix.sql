@@ -33,15 +33,29 @@
 --
 -- metric_snapshots (S6-002) is NOT part of the collision -- no F5 table
 -- shares its name or shape -- and is kept as F6's raw provider-payload
--- audit trail. Its publication_id FK, originally left off because F5
--- had not merged yet ("Logical link to F5 publications (FK deferred
--- until F5 merge)", S6-002's own comment), is added now that
--- public.publications exists on this branch. Its INSERT policy is also
--- tightened from "any authenticated user" (S6-002's original `WITH
--- CHECK (true)`) to results_analyst, matching the write permission
+-- audit trail. Its INSERT policy is tightened here from "any authenticated
+-- user" (S6-002's original `WITH CHECK (true)`) to results_analyst,
+-- matching the write permission
 -- 20260905000000_metric_definitions_observations_role_based_rls_s5_007.sql
 -- already gives the rest of this domain (docs/access-control-matrix.md
 -- Section 15).
+--
+-- Correction (2026-08-10, found running `supabase db reset` for the first
+-- time against this branch): this migration originally also added
+-- `metric_snapshots.publication_id`'s FK to `public.publications` right
+-- here. That is wrong -- "public.publications exists on this branch" was
+-- true of the git tree, but not of migration-replay chronology: this file
+-- is dated 2026-07-31, and `public.publications` is not created until
+-- `20260821000000_publications_lifecycle_s5_002.sql` (2026-08-21), three
+-- weeks later. Running `db reset` from scratch hit `relation
+-- "public.publications" does not exist` right here and aborted the
+-- ENTIRE reset -- every migration dated after this one (essentially all
+-- of S3-002 onward, i.e. nearly the whole schema) was never applied,
+-- which is why the resulting pgTAP run showed dozens of unrelated tables
+-- as missing. The FK is now added in its own later migration,
+-- `20260821000001_f6_metric_snapshots_publication_fk.sql`, dated right
+-- after `publications` itself is created -- this file no longer touches
+-- `public.publications` at all.
 
 begin;
 
@@ -50,12 +64,6 @@ drop view if exists public.v_funnel_metrics;
 
 drop table if exists public.metric_values;
 drop table if exists public.metric_definitions;
-
-alter table public.metric_snapshots
-add constraint metric_snapshots_publication_id_fkey
-foreign key (publication_id)
-references public.publications(id)
-on update cascade on delete restrict;
 
 drop policy if exists "Allow authenticated insert on metric_snapshots" on public.metric_snapshots;
 

@@ -1,5 +1,28 @@
 -- S6-004: Vistas SQL Embudo y Tablas Base de Soporte (Versión Aislada F6)
 -- Objetivo: Permitir cálculo de conversión, prefiltro y CPL sin depender de tablas F2/F3 externas.
+--
+-- Correction (2026-08-10, found running `supabase db reset` for the first
+-- time against this branch): the `v_funnel_metrics` view below originally
+-- joined `metric_values mv ON ... AND mv.metric_name = 'ad_spend'`. This
+-- migration's own `CREATE TABLE IF NOT EXISTS public.metric_values` a few
+-- lines above is a no-op in migration-replay order: `metric_values`
+-- (and `campaigns`) already exist by the time this file runs --
+-- `metric_values` was created one migration earlier by S6-002
+-- (`20260731120000_f6_metrics_schema.sql`), with a DIFFERENT shape
+-- (`metric_definition_id UUID` FK, no `metric_name` column at all).
+-- Referencing `mv.metric_name` against that real table throws `column
+-- mv.metric_name does not exist` (42703) and aborts `CREATE VIEW`
+-- outright -- this migration, and therefore the entire `db reset` chain,
+-- never got past this statement. Fixed by joining through
+-- `metric_definitions` (also created by S6-002, has a `name` column) via
+-- `metric_definition_id` instead -- the columns that actually exist at
+-- this point in migration chronology. This view (and its `metric_values`/
+-- `metric_definitions` dependencies) are dropped and correctly recreated
+-- against F5's real `metric_observations`/`metric_definitions` six weeks
+-- later anyway (`20260731140001_f6_metrics_schema_collision_fix.sql`,
+-- `20260914000000_f6_funnel_views_metric_observations_rewire.sql`) -- this
+-- fix only needs to make the chain replayable, not correct in the long
+-- run, since nothing ever reads this intermediate version of the view.
 
 -- 1. Tablas Base Mínimas (Sin FKs externas para evitar errores 42P01)
 CREATE TABLE IF NOT EXISTS public.form_submissions (
@@ -48,7 +71,8 @@ SELECT
 FROM public.campaigns c
 LEFT JOIN public.form_submissions fs ON fs.campaign_id = c.id
 LEFT JOIN public.leads l ON l.submission_id = fs.id
-LEFT JOIN public.metric_values mv ON mv.campaign_id = c.id AND mv.metric_name = 'ad_spend'
+LEFT JOIN public.metric_definitions md ON md.name = 'ad_spend'
+LEFT JOIN public.metric_values mv ON mv.campaign_id = c.id AND mv.metric_definition_id = md.id
 GROUP BY c.id, c.code;
 
 -- 3. Vista Derivada de Fórmulas (v_funnel_kpis)
