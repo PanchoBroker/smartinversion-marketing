@@ -1,5 +1,20 @@
 import { createClient } from '@supabase/supabase-js';
 
+// F6 integration correction (2026-08-10): this page had no auth gate at
+// all -- reachable by anyone, unauthenticated. Fixed at the middleware
+// layer (src/middleware.ts now treats /analytics like /app: login
+// required). What is NOT fixed here: the query below still uses the
+// service-role key, which bypasses RLS entirely, so any authenticated
+// user sees every campaign's data regardless of role -- the same
+// "Related"-qualifier per-row filtering F5 itself has left deferred
+// throughout (see e.g. 20260905000000_metric_definitions_observations_
+// role_based_rls_s5_007.sql's own header). Switching this to a
+// session-scoped client would additionally require RLS policies on
+// public.campaigns/public.form_submissions/public.leads (F6's own mock
+// tables, S6-004), which currently have none at all -- a separate,
+// already-flagged gap (project memory: f6 integration status), not
+// touched here.
+//
 // Cliente server-side para lectura de métricas (F6)
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,

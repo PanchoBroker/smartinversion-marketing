@@ -41,7 +41,17 @@ export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const isPrivateRoute =
     pathname === "/app" ||
-    pathname.startsWith("/app/");
+    pathname.startsWith("/app/") ||
+    // F6 integration correction (2026-08-10): /analytics and /learning
+    // (S6-005/S6-006) shipped with no auth gate at all -- they were
+    // reachable by anyone, unauthenticated, same as /app but without the
+    // check. Same authentication-only bar as /app: role-level filtering
+    // still happens at the RLS/route layer, not here, matching how /app
+    // itself works.
+    pathname === "/analytics" ||
+    pathname.startsWith("/analytics/") ||
+    pathname === "/learning" ||
+    pathname.startsWith("/learning/");
   const isLoginRoute = pathname === "/login";
 
   if (isPrivateRoute && !session.configured) {
