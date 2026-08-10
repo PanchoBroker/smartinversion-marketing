@@ -552,8 +552,8 @@ Delegated to the assistant's judgment by the product owner (Francisco) during th
 
 ### Affected implementation
 
-- New migration and pgTAP test as listed under Evidence — pending validation by the product owner against a real Postgres instance (`npx supabase db reset && npx supabase test db`).
-- `indice-maestro.md` Bloque B3 to be updated once that validation succeeds.
+- New migration and pgTAP test as listed under Evidence — validated by the product owner against a real Postgres instance (`npx supabase db reset && npx supabase test db` → `Files=63, Tests=1986, Result: PASS`) and merged to `main` via PR #123 (merge commit `af5e474`, 2026-08-10).
+- `indice-maestro.md` Bloque B3 updated accordingly.
 
 ## 21. Gate G0 interpretation required
 
