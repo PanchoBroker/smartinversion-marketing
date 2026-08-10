@@ -51,13 +51,6 @@ CREATE TABLE IF NOT EXISTS public.metric_values (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Tabla auxiliar mínima para campañas (solo para que las vistas funcionen localmente)
-CREATE TABLE IF NOT EXISTS public.campaigns (
-  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  code TEXT UNIQUE,
-  name TEXT
-);
-
 -- 2. Vista del Embudo (v_funnel_metrics)
 -- Calcula métricas agregadas por campaña
 CREATE OR REPLACE VIEW public.v_funnel_metrics AS
