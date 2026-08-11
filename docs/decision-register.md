@@ -5,8 +5,8 @@
 - **Work item:** S0-019 / Gate G0 review
 - **Status:** Under Gate G0 review
 - **Owner:** Smartinversion product owner
-- **Updated:** 2026-08-11 (D-08 formally re-reviewed: state moved Provisional → Conditioned, scope confirmed still undefined by the product owner, not silently lapsed)
-- **Purpose:** Record the status, owner, rationale, evidence and blocking effect of decisions D-01 through D-16.
+- **Updated:** 2026-08-11 (D-07 decided: 6-month retention for non-converting leads; D-19 added: informed waiver of prior external legal review)
+- **Purpose:** Record the status, owner, rationale, evidence and blocking effect of decisions D-01 through D-19.
 
 ## 1. Decision states
 
@@ -28,7 +28,7 @@
 | D-04 | Initial users and roles | Decided at role-model level | Product and technical owners | Named assignments before authentication rollout |
 | D-05 | Initial lead-delivery channel | Decided | Product owner and commercial liaison | Adapter implementation before real delivery |
 | D-06 | Consent and privacy | Conditioned | Product owner and legal/privacy owner | Final approval before any public form or real lead |
-| D-07 | Lead retention | Conditioned | Product owner and legal/privacy owner | Final approval before any real lead is stored |
+| D-07 | Lead retention | Decided (non-converting leads only) | Product owner | Retention for converting leads still undefined |
 | D-08 | MC-REG-001 pilot scope | Conditioned | Product owner | Exact scope before real campaign activation |
 | D-09 | Human codes and lifecycle-state representation | Decided | Product owner | None for S1-008 |
 | D-10 | Restricted-data physical isolation (schema separation) | Decided | Product and technical owners | Lead-table migrations depend on this model |
@@ -40,6 +40,7 @@
 | D-16 | S4-009 `qa_defects` resolution reading (active `approver` only) | Decided | Product owner | None for Sprint 4/Gate G4 |
 | D-17 | Phase 4/Phase 5/Phase 6 scope boundary (Producción/QA vs. Distribución/Medición vs. Aprendizaje) | Decided | Product owner | None for Sprint 5/Gate G5 |
 | D-18 | `learning_records` access-control qualifiers: commercial_owner "A" implemented, investment_analyst "Evidence-related" and other-roles "Related" deferred | Decided | Product owner | None for F6 integration close |
+| D-19 | Informed waiver of prior external legal review (D-06/D-07 gate) | Decided (risk accepted) | Product owner | Revisit before scaling beyond `MC-REG-001` |
 
 ## 3. D-01 — Hosting account and plan
 
@@ -165,19 +166,36 @@ This condition does not authorize public forms or real personal data. Its treatm
 
 ## 9. D-07 — Lead retention
 
-### Current direction
+### Decision
 
-Lead retention must be configurable, purpose-bound and verifiable. Expiration, anonymization or deletion must preserve only the minimum non-personal audit evidence permitted by the approved policy.
+A lead that does not convert (no response leading to a commercial close) is retained for **6 months from the last interaction event** — the form submission itself, or the prospect's most recent response if there was one, whichever is later. Once that period elapses without conversion, the lead must be anonymized or deleted.
 
-### Condition
+Retention must remain configurable, purpose-bound and verifiable, and expiration/anonymization/deletion must preserve only the minimum non-personal audit evidence the approved policy permits — this direction, already fixed before this decision, is unchanged.
 
-No final retention, anonymization or deletion period has been legally and operationally approved.
+### Rationale
 
-No duration is invented by this register.
+Ley 21.719 Art. 3° letra c) (principio de proporcionalidad) requires personal data to be retained only for as long as the purpose of the processing remains valid. For a lead that has not converted, the original purpose — commercial contact and evaluation of an investment opportunity — has lapsed once six months pass without conversion.
+
+### Scope
+
+This decision governs only leads that do not convert. A lead that does convert to a client moves to a different retention regime (contractual relationship, possible tax/accounting retention obligations) — not covered by this decision, tracked as a separate open item (see Residual condition). The period counts from the last interaction event, not from record creation, so a lead in active conversation is not penalized for still being open.
+
+### Residual condition
+
+Revisit this period if the real sales cycle observed during the F7 pilot differs materially from the six-month assumption. Retention for leads that do convert remains a separate, unresolved item — not authorized by this decision.
+
+### Evidence
+
+- Ley 21.719 (Diario Oficial, texto consolidado BCN, vigente con modificaciones a 2026-02-05), Art. 3° letra c)
+- `docs/d06-d07-consent-retention-draft-proposal.md` §3 (prior industry reference-range table; superseded for the non-conversion case by this fixed period)
+
+### Approval
+
+Decided directly by the product owner (Francisco) on 2026-08-11, following a full read of the Ley 21.719 official text (BCN PDF, 56 pages) cross-checked in the same session.
 
 ### Gate implication
 
-This condition does not authorize storing real leads. Its treatment at G0 must be explicit because Sprint 0 v1.0 described D-07 as blocking, while later repository contracts defer final periods until before production data.
+This decision authorizes storing a real, non-converting lead only up to the 6-month limit above, and only once D-06 (consent wording) is itself resolved — D-07 clearing does not by itself authorize real capture. Sprint 0 v1.0 described D-07 as blocking; this entry is the controlled update that resolves it for the non-converting case, per Section 22's change-control rule.
 
 ## 10. D-08 — MC-REG-001 pilot scope
 
@@ -559,7 +577,36 @@ Delegated to the assistant's judgment by the product owner (Francisco) during th
 - New migration and pgTAP test as listed under Evidence — validated by the product owner against a real Postgres instance (`npx supabase db reset && npx supabase test db` → `Files=63, Tests=1986, Result: PASS`) and merged to `main` via PR #123 (merge commit `af5e474`, 2026-08-10).
 - `indice-maestro.md` Bloque B3 updated accordingly.
 
-## 21. Gate G0 interpretation required
+## 21. D-19 — Informed waiver of prior external legal review (D-06/D-07 gate)
+
+### Decision
+
+The product owner chooses to launch the `MC-REG-001` pilot without a prior external legal review of D-06/D-07, personally accepting the resulting compliance risk. This is a business risk decision, not a legal determination, and it does not constitute legal advice.
+
+### Rationale (non-binding research, not legal advice)
+
+- Ley 21.719 does not require a lawyer's signature or approval as a condition to operate.
+- A Data Protection Officer is not mandatory for a project of this size — appointment is voluntary per Art. 49-50.
+- The SME grace window (Art. sexto transitorio) allows a first infraction between December 2026 and December 2027 to be sanctioned with a warning instead of a fine, at the Agency's discretion — not a guarantee, but a mitigating factor.
+
+### Conditions and limits
+
+- Does not waive the requirement that D-06 and D-07 be substantively correct — it waives prior external sign-off, not substantive compliance.
+- If a data subject complains, or the Agency raises an observation, it is corrected immediately.
+- Must be revisited before scaling the pilot beyond `MC-REG-001`.
+- A targeted legal review is recommended once budget allows, though not required by this decision.
+
+### Evidence
+
+- Ley 21.719 (Diario Oficial, texto consolidado BCN, vigente con modificaciones a 2026-02-05), Art. 49-50, Art. sexto transitorio
+- `docs/d06-d07-consent-retention-draft-proposal.md`
+- `docs/privacy-policy-draft-proposal.md`
+
+### Approval
+
+Decided directly by the product owner (Francisco) on 2026-08-11.
+
+## 22. Gate G0 interpretation required
 
 Gate G0 must not silently treat D-06 or D-07 as complete.
 
@@ -577,7 +624,7 @@ Under every outcome:
 - no draft consent wording may be presented as legally approved;
 - no retention period may be inferred.
 
-## 22. Change control
+## 23. Change control
 
 A decision change must record:
 
