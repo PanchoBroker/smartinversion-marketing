@@ -46,7 +46,15 @@ function assignment(roleCode: string) {
 
 function fakeUserClient(user: { id: string } | null) {
   return {
-    auth: { getUser: async () => ({ data: { user } }) },
+    auth: {
+        getUser: async () => ({ data: { user } }),
+        mfa: {
+          getAuthenticatorAssuranceLevel: async () => ({
+            data: { currentLevel: "aal2", nextLevel: "aal2" },
+            error: null,
+          }),
+        },
+      },
   };
 }
 

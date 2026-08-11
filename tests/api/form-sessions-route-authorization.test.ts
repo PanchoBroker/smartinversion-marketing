@@ -47,7 +47,15 @@ function assignment(roleCode: string) {
 function fakeUserClient(user: { id: string } | null = { id: "auth-user" }) {
   return {
     client: {
-      auth: { getUser: async () => ({ data: { user } }) },
+      auth: {
+        getUser: async () => ({ data: { user } }),
+        mfa: {
+          getAuthenticatorAssuranceLevel: async () => ({
+            data: { currentLevel: "aal2", nextLevel: "aal2" },
+            error: null,
+          }),
+        },
+      },
     },
   };
 }
@@ -96,7 +104,15 @@ function fakeUserClientWithFormSessions(result: {
 
   return {
     client: {
-      auth: { getUser: async () => ({ data: { user: { id: "auth-user" } } }) },
+      auth: {
+        getUser: async () => ({ data: { user: { id: "auth-user" } } }),
+        mfa: {
+          getAuthenticatorAssuranceLevel: async () => ({
+            data: { currentLevel: "aal2", nextLevel: "aal2" },
+            error: null,
+          }),
+        },
+      },
       from,
     },
     from,

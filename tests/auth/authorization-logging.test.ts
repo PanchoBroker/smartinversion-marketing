@@ -14,11 +14,15 @@ import { evaluateAuthorizationWithLogging } from "@/lib/auth/authorization";
 
 const CORRELATION_ID = "123e4567-e89b-42d3-a456-426614174000";
 
+// G0-R05 (2026-08-10): defaults to "aal2" so these logging-focused tests
+// (unrelated to the MFA gate itself, covered separately in
+// tests/auth/authorization.test.ts) are unaffected by the new gate.
 function subject(roleCodes: string[]) {
   return {
     profileId: "10000000-0000-4000-8000-000000000001",
     accountStatus: "active",
     roleCodes,
+    assuranceLevel: "aal2" as const,
   };
 }
 

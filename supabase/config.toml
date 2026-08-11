@@ -299,9 +299,18 @@ auth_token = "env(SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN)"
 max_enrolled_factors = 10
 
 # Control MFA via App Authenticator (TOTP)
+# G0-R05 (2026-08-10): the TOTP MFA API is free on all Supabase plans,
+# including Free (docs.supabase.com/docs/guides/auth/auth-mfa/totp,
+# verified against live docs, not the stale "available to Pro plan" text
+# that used to sit on this exact comment block from the CLI's own default
+# scaffold -- that text described the *Supabase dashboard account* MFA
+# feature, a different thing from this project's own end users' MFA).
+# Enabled here so administrator/commercial_liaison (the two roles named by
+# docs/access-control-matrix.md Section 6, "leads and administrative
+# functions require MFA") can enroll and verify a TOTP factor locally.
 [auth.mfa.totp]
-enroll_enabled = false
-verify_enabled = false
+enroll_enabled = true
+verify_enabled = true
 
 # Configure MFA via Phone Messaging
 [auth.mfa.phone]

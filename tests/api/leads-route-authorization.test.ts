@@ -44,7 +44,15 @@ function assignment(roleCode: string) {
 function fakeUserClient(user: { id: string } | null = { id: "auth-user" }) {
   return {
     client: {
-      auth: { getUser: async () => ({ data: { user } }) },
+      auth: {
+        getUser: async () => ({ data: { user } }),
+        mfa: {
+          getAuthenticatorAssuranceLevel: async () => ({
+            data: { currentLevel: "aal2", nextLevel: "aal2" },
+            error: null,
+          }),
+        },
+      },
     },
   };
 }
@@ -116,6 +124,34 @@ describe("leads route authorization (RPC bridge into restricted.leads)", () => {
     const response = await listLeads(leadsRequest());
 
     expect(response.status).toBe(401);
+  });
+
+  // G0-R05 (2026-08-10): docs/access-control-matrix.md Section 6 --
+  // lead.read requires MFA.
+  it("denies a role-permitted request at aal1 before touching the RPC", async () => {
+    const userClient = fakeUserClient();
+    userClient.client.auth.mfa = {
+      getAuthenticatorAssuranceLevel: async () => ({
+        data: { currentLevel: "aal1", nextLevel: "aal1" },
+        error: null,
+      }),
+    };
+    const serviceClient = fakeServiceClient({
+      profile: { id: PROFILE_ID, account_status: "active" },
+      assignments: [assignment("administrator")],
+    });
+    mocks.createUserClient.mockResolvedValue(userClient.client);
+    mocks.createServiceClient.mockResolvedValue(serviceClient.client);
+
+    const response = await listLeads(leadsRequest());
+
+    expect(response.status).toBe(403);
+    expect(serviceClient.rpc).not.toHaveBeenCalled();
+
+    const body = (await response.json()) as {
+      details?: { reason?: string };
+    };
+    expect(body.details?.reason).toBe("mfa_required");
   });
 
   it("denies a role the policy does not permit, never calling the RPC", async () => {
