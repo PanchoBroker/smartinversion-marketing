@@ -1,0 +1,2 @@
+# False positive: prose 'leaked/compromised' in docs/authentication-session-policy.md S20.1 (G0-R05 hosted auth verification). Not a real secret.
+d0d44ee5dd199aa899a4b763829ba7bed0823aa6:docs/authentication-session-policy.md:generic-api-key:339
