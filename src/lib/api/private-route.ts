@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
+  AuthenticatorAssuranceLevel,
   AuthorizationAction,
   AuthorizationSubject,
 } from "@/lib/auth/authorization";
@@ -119,13 +120,27 @@ function selectExercisedRole(
   // Deterministic auto-selection: the first assigned role the S1-003
   // policy permits for this action. The exercised role is still logged
   // with every decision (docs/access-control-matrix.md Section 3.6).
-  return subject.roleCodes.find(
-    (roleCode) =>
-      evaluateAuthorization(subject, {
-        action,
-        exercisedRole: roleCode,
-      }).allowed,
-  );
+  //
+  // G0-R05 (2026-08-10) bug fix: this predicate must accept a role whose
+  // ONLY problem is "mfa_required", not just fully "allowed" roles.
+  // Without this, a role that genuinely holds the action but is at aal1
+  // would never be selected here (evaluateAuthorization().allowed is
+  // false for it too), this function would return undefined, and the
+  // real decision below would come back "role_required" instead of the
+  // true "mfa_required" -- masking the actual reason. allowedObjectStates
+  // is never passed in this call, so "mfa_required" is the only
+  // non-"allowed" reason that can mean "the role itself is fine."
+  return subject.roleCodes.find((roleCode) => {
+    const decision = evaluateAuthorization(subject, {
+      action,
+      exercisedRole: roleCode,
+    });
+
+    return (
+      decision.allowed ||
+      (!decision.allowed && decision.reason === "mfa_required")
+    );
+  });
 }
 
 export async function authorizePrivateRoute(
@@ -157,6 +172,18 @@ export async function authorizePrivateRoute(
       ),
     };
   }
+
+  // G0-R05 (2026-08-10): reads the "aal" claim already present in the
+  // verified session JWT -- getAuthenticatorAssuranceLevel() is a local,
+  // no-network call (supabase-js docs), not a fresh API round trip.
+  // Absent/errored resolves to "aal1", fail-closed, same posture as every
+  // other subject field here (no active session, no PII).
+  const assuranceLevel: AuthenticatorAssuranceLevel =
+    (
+      await userClient.auth.mfa.getAuthenticatorAssuranceLevel()
+    ).data?.currentLevel === "aal2"
+      ? "aal2"
+      : "aal1";
 
   const serviceClient = await createServiceRoleClient();
 
@@ -207,6 +234,7 @@ export async function authorizePrivateRoute(
     roleCodes: activeRoleCodes(
       (assignments ?? []) as unknown as AssignmentRow[],
     ),
+    assuranceLevel,
   };
 
   const exercisedRole = selectExercisedRole(

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { logout } from "./actions";
@@ -57,14 +58,24 @@ export default async function PrivateApplicationPage() {
           productiva de leads.
         </p>
 
-        <form action={logout} className="mt-8">
-          <button
-            className="rounded-lg border border-slate-700 px-4 py-3 text-sm font-semibold text-slate-200 transition hover:border-amber-400 hover:text-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-300 focus:ring-offset-2 focus:ring-offset-slate-900"
-            type="submit"
+        <div className="mt-8 flex flex-wrap gap-3">
+          <Link
+            className="rounded-lg border border-slate-700 px-4 py-3 text-sm font-semibold text-slate-200 transition hover:border-amber-400 hover:text-amber-400"
+            href="/app/security"
           >
-            Cerrar todas las sesiones
-          </button>
-        </form>      </section>
+            Verificación en dos pasos (MFA)
+          </Link>
+
+          <form action={logout}>
+            <button
+              className="rounded-lg border border-slate-700 px-4 py-3 text-sm font-semibold text-slate-200 transition hover:border-amber-400 hover:text-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-300 focus:ring-offset-2 focus:ring-offset-slate-900"
+              type="submit"
+            >
+              Cerrar todas las sesiones
+            </button>
+          </form>
+        </div>
+      </section>
     </main>
   );
 }

@@ -2,11 +2,11 @@
 
 ## Marketing Content — Smartinversion
 
-- **Work item:** S1-001
+- **Work item:** S1-001; MFA (§19) added 2026-08-10 against G0-R05
 - **Status:** Implemented and validated locally; hosted-project verification pending
 - **Data boundary:** Synthetic identities only
 - **Production authorization:** Not granted
-- **Updated:** 2026-07-21
+- **Updated:** 2026-08-10
 
 ## 1. Purpose
 
@@ -295,7 +295,37 @@ The local invitation-only configuration is:
 The email provider remains enabled so invited identities can authenticate. Public self-registration remains disabled by the general Auth setting.
 
 This validation does not prove the configuration of the hosted Supabase project. Hosted-project settings, redirect allowlists and invitation behavior must be verified independently before staging or production acceptance.
-## 19. References
+
+## 19. Multi-factor authentication (G0-R05)
+
+`docs/g0-gate-review.md` §7 (risk G0-R05) carried forward "Named role assignments, MFA and session policy remain open" unresolved through every gate from G0 through G5. This section closes the MFA sub-item with real evidence and states precisely what remains open in the other two.
+
+### 19.1 MFA mechanism
+
+TOTP (App Authenticator) multi-factor authentication, using Supabase Auth's own MFA API. This API is free on every Supabase plan, including Free (the plan D-02 approves) — verified directly against Supabase's current documentation on 2026-08-10, not assumed from `supabase/config.toml`'s own generic CLI-scaffold comment, which described a different feature (MFA enforcement on the *Supabase dashboard account*, a Pro/Team/Enterprise organization setting, not this project's own end-user MFA).
+
+Enabled in `supabase/config.toml` (`[auth.mfa.totp] enroll_enabled = true`, `verify_enabled = true`). Phone and WebAuthn factors remain disabled — no SMS provider or WebAuthn relying-party has been approved.
+
+### 19.2 Enforcement: exactly "leads and administrative functions," not blanket
+
+Section 6 of `docs/access-control-matrix.md` states the requirement in one sentence: "Production access to leads and administrative functions requires MFA." `src/lib/auth/authorization.ts`'s `MFA_REQUIRED_ACTIONS` is the closed, literal translation of that sentence into the S1-003 authorization service's own action vocabulary — every action that reaches a `restricted.*` PII-adjacent table directly (the seven rows `docs/access-control-matrix.md` §14 names: `leads`, `lead_deliveries`, `form_submissions`, `lead_consents`, `lead_status_events`, `lead_attribution`, plus `lead.export`) and the three administrator-only user-management/audit actions (`user.read`, `user.write`, `user.approve`, `audit.read`). It deliberately does not extend to every action a privileged role can take — `campaign.approve`, `evidence.approve` and similar commercial/investment decisions are not "leads [or] administrative functions" in the matrix's own words, and widening the set beyond that sentence would be the same kind of unauthorized scope expansion D-15/D-18 already declined elsewhere.
+
+The gate lives in `evaluateAuthorization()`, checked immediately after role permission and before object-state checks: a role that never held the action gets `role_not_permitted` (does not leak that the action exists for a role that could never take it); a role that holds it but is at `aal1` gets `mfa_required`. `src/lib/api/private-route.ts`'s `authorizePrivateRoute()` — the single choke point for every private `/api/v1` route since S2-009 — populates the caller's assurance level via `userClient.auth.mfa.getAuthenticatorAssuranceLevel()` (a local read of the session JWT's own `aal` claim, no network round trip per Supabase's own documentation), defaulting to `aal1` if absent or unreadable — fail-closed, same posture as every other subject field this function resolves.
+
+This is a Layer-1 (API-boundary) gate, evaluated before any RPC or table read. It is not additionally enforced at the Postgres/RLS layer (`auth.jwt() ->> 'aal'` is available there too, but no policy references it). Every current human write/read path onto an MFA-required table already goes exclusively through `/api/v1` (S5-008's own private-API bridge), so this is a complete closure for the interface that exists today, not a partial one — but it is disclosed here, not silently assumed, as a defense-in-depth gap a future RLS-level mirror of this same check could close if a non-API access path is ever added.
+
+### 19.3 Enrollment and login-challenge flow
+
+- `/app/security` (`src/app/app/security/page.tsx`, `actions.ts`) — self-service TOTP enrollment, reachable by any authenticated profile. Calls `auth.mfa.enroll()` to generate a QR code and secret, then `challenge()`/`verify()` to activate the factor. Deliberately does not offer self-service disable of an already-verified factor: allowing a compromised `aal1` session to turn off its own MFA would defeat the control; disabling a verified factor is left as a future protected administrative operation, not built here.
+- `/login/mfa-challenge` (`src/app/login/mfa-challenge/page.tsx`, `actions.ts`) — second login step. `src/app/login/actions.ts` checks `getAuthenticatorAssuranceLevel()` right after `signInWithPassword()` succeeds; if `nextLevel === "aal2"` and differs from `currentLevel`, the profile has a verified factor and is redirected here instead of `/app` directly. A profile with no factor enrolled has `nextLevel === currentLevel` and is not interrupted — MFA is required per-action, not for every login, consistent with §19.2.
+
+### 19.4 What remains open (not closed by this section)
+
+- **Named role assignments**: the *mechanism* (`public.role_assignments`, with `assigned_by`/`valid_from`/`valid_until`/`revoked_at`) has existed since S1-002 and is exercised by every role-gated route in F1-F7. What G0-R05 actually flagged as open is that no *real, named human* — only synthetic fixtures — has ever held an assignment. That is an operational action for the product owner (who, in which role, effective when), not an engineering deliverable; this document does not invent one.
+- **Session policy**: §8-§9 already fixed the baseline configuration and Supabase Free's known limitations (no fixed session timebox, no inactivity timeout, no single-session enforcement) before this section existed. §18's own words still apply unchanged: "This validation does not prove the configuration of the hosted Supabase project" — hosted-project verification remains a separate, unclosed action, not something this section's local-environment MFA work can confirm.
+- **Postgres/RLS-level MFA mirror**: see §19.2's closing paragraph — disclosed as a defense-in-depth gap, not built.
+
+## 20. References
 
 - Supabase SSR client: https://supabase.com/docs/guides/auth/server-side/creating-a-client
 - Supabase sessions: https://supabase.com/docs/guides/auth/sessions

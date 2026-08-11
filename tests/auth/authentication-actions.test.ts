@@ -91,7 +91,7 @@ describe("authentication actions", () => {
     );
   });
 
-  it("normalizes an invited user's email and grants app navigation", async () => {
+  it("normalizes an invited user's email and grants app navigation when no MFA factor is enrolled", async () => {
     const signInWithPassword = vi.fn().mockResolvedValue({
       error: null,
     });
@@ -99,6 +99,14 @@ describe("authentication actions", () => {
     mocks.createClient.mockResolvedValue({
       auth: {
         signInWithPassword,
+        mfa: {
+          // No factor enrolled: nextLevel === currentLevel, per
+          // Supabase's own AAL semantics -- not interrupted.
+          getAuthenticatorAssuranceLevel: vi.fn().mockResolvedValue({
+            data: { currentLevel: "aal1", nextLevel: "aal1" },
+            error: null,
+          }),
+        },
       },
     });
 
@@ -117,6 +125,38 @@ describe("authentication actions", () => {
     });
     expect(mocks.logInfo).toHaveBeenCalledWith(
       expect.objectContaining({ event: "auth.login.success" }),
+    );
+  });
+
+  // G0-R05 (2026-08-10): a profile with a verified TOTP factor already
+  // enrolled has nextLevel "aal2" !== currentLevel "aal1" right after
+  // password sign-in -- login/actions.ts must send it through the
+  // challenge step instead of granting /app directly.
+  it("routes an MFA-enrolled profile to the challenge step instead of /app", async () => {
+    const signInWithPassword = vi.fn().mockResolvedValue({
+      error: null,
+    });
+
+    mocks.createClient.mockResolvedValue({
+      auth: {
+        signInWithPassword,
+        mfa: {
+          getAuthenticatorAssuranceLevel: vi.fn().mockResolvedValue({
+            data: { currentLevel: "aal1", nextLevel: "aal2" },
+            error: null,
+          }),
+        },
+      },
+    });
+
+    await expect(login(credentials())).rejects.toThrow(
+      "REDIRECT:/login/mfa-challenge",
+    );
+
+    expect(mocks.logInfo).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "auth.login.mfa_challenge_required",
+      }),
     );
   });
 

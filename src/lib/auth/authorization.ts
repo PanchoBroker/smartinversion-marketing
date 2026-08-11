@@ -107,11 +107,50 @@ export const AUTHORIZATION_ACTIONS = [
 export type AuthorizationAction =
   (typeof AUTHORIZATION_ACTIONS)[number];
 
+// G0-R05 (2026-08-10): authenticator assurance level, read from the
+// verified session JWT's own "aal" claim via
+// `userClient.auth.mfa.getAuthenticatorAssuranceLevel()` (supabase-js,
+// no network call -- see src/lib/api/private-route.ts). "aal1" means the
+// caller has completed only password sign-in, whether or not they have a
+// TOTP factor enrolled; "aal2" means they have completed the TOTP
+// challenge this session. Absent/unreadable defaults to "aal1"
+// (fail-closed), never assumed "aal2".
+export type AuthenticatorAssuranceLevel = "aal1" | "aal2";
+
 export interface AuthorizationSubject {
   profileId: string;
   accountStatus: string;
   roleCodes: readonly string[];
+  assuranceLevel: AuthenticatorAssuranceLevel;
 }
+
+// G0-R05 (2026-08-10): docs/access-control-matrix.md Section 6 -- "Production
+// access to leads and administrative functions requires MFA." This is the
+// exact, closed list of actions that sentence covers: every action that
+// reaches restricted.* full-contact-adjacent PII directly (Section 14's
+// seven rows) plus the three administrator-only user-management/audit
+// actions (Section "administrative functions"). Deliberately NOT every
+// action a privileged role can take -- e.g. campaign.approve or
+// evidence.approve are commercial/investment decisions, not "leads [or]
+// administrative functions" in the matrix's own words, and widening this
+// set beyond what the matrix actually says would be the same kind of
+// unauthorized scope expansion D-15/D-18 already declined to do elsewhere
+// in this project.
+export const MFA_REQUIRED_ACTIONS: ReadonlySet<AuthorizationAction> = new Set([
+  "lead.read",
+  "lead.write",
+  "lead.export",
+  "lead_delivery.read",
+  "form_submission.read",
+  "lead_consent.read",
+  "lead_status_event.read",
+  "lead_status_event.write",
+  "lead_attribution.read",
+  "user.read",
+  "user.write",
+  "user.approve",
+  "audit.read",
+]);
 
 export interface AuthorizationRequest {
   action: string;
@@ -128,6 +167,7 @@ export type AuthorizationDenialReason =
   | "unknown_role"
   | "role_not_assigned"
   | "role_not_permitted"
+  | "mfa_required"
   | "object_state_required"
   | "object_state_not_permitted";
 
@@ -830,6 +870,20 @@ export function evaluateAuthorization(
     return {
       allowed: false,
       reason: "role_not_permitted",
+    };
+  }
+
+  // G0-R05: MFA gate, checked only after role permission is already
+  // established -- a role that cannot take this action at all should see
+  // "role_not_permitted", not "mfa_required" (does not leak that the
+  // action exists for a role that never had it).
+  if (
+    MFA_REQUIRED_ACTIONS.has(request.action) &&
+    subject.assuranceLevel !== "aal2"
+  ) {
+    return {
+      allowed: false,
+      reason: "mfa_required",
     };
   }
 

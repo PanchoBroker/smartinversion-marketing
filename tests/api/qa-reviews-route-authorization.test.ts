@@ -66,7 +66,15 @@ function fakeUserClient(options: {
 
   return {
     client: {
-      auth: { getUser: async () => ({ data: { user: { id: "auth-user" } } }) },
+      auth: {
+        getUser: async () => ({ data: { user: { id: "auth-user" } } }),
+        mfa: {
+          getAuthenticatorAssuranceLevel: async () => ({
+            data: { currentLevel: "aal2", nextLevel: "aal2" },
+            error: null,
+          }),
+        },
+      },
       from,
     },
     from,

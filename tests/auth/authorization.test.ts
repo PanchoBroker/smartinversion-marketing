@@ -2,17 +2,24 @@ import { describe, expect, it } from "vitest";
 
 import {
   evaluateAuthorization,
+  type AuthenticatorAssuranceLevel,
   type AuthorizationSubject,
 } from "@/lib/auth/authorization";
 
+// G0-R05 (2026-08-10): defaults to "aal2" so every pre-existing test in
+// this file (none of which exercises an MFA-required action) keeps
+// passing unmodified -- the MFA gate describe block below is the only
+// place that passes "aal1" explicitly.
 function subject(
   roleCodes: readonly string[],
   accountStatus = "active",
+  assuranceLevel: AuthenticatorAssuranceLevel = "aal2",
 ): AuthorizationSubject {
   return {
     profileId: "00000000-0000-4000-8000-000000000001",
     accountStatus,
     roleCodes,
+    assuranceLevel,
   };
 }
 
@@ -198,5 +205,109 @@ describe("evaluateAuthorization", () => {
       action: "evidence.approve",
       exercisedRole: "investment_analyst",
     });
+  });
+});
+
+// G0-R05 (2026-08-10): docs/access-control-matrix.md Section 6 -- "leads
+// and administrative functions" require MFA. MFA_REQUIRED_ACTIONS is the
+// exact, closed list this describe block exercises against both
+// assurance levels.
+describe("evaluateAuthorization -- MFA gate (G0-R05)", () => {
+  it("denies a role-permitted, MFA-required action at aal1", () => {
+    expect(
+      evaluateAuthorization(
+        subject(["administrator"], "active", "aal1"),
+        {
+          action: "lead.read",
+          exercisedRole: "administrator",
+        },
+      ),
+    ).toEqual({
+      allowed: false,
+      reason: "mfa_required",
+    });
+  });
+
+  it("allows the same action at aal2", () => {
+    expect(
+      evaluateAuthorization(
+        subject(["administrator"], "active", "aal2"),
+        {
+          action: "lead.read",
+          exercisedRole: "administrator",
+        },
+      ),
+    ).toEqual({
+      allowed: true,
+      profileId: "00000000-0000-4000-8000-000000000001",
+      action: "lead.read",
+      exercisedRole: "administrator",
+    });
+  });
+
+  it("reports role_not_permitted, not mfa_required, when the role never held the action -- does not leak that the action exists for an unentitled role", () => {
+    expect(
+      evaluateAuthorization(
+        subject(["creative_owner"], "active", "aal1"),
+        {
+          action: "user.read",
+          exercisedRole: "creative_owner",
+        },
+      ),
+    ).toEqual({
+      allowed: false,
+      reason: "role_not_permitted",
+    });
+  });
+
+  it("does not require MFA for an action outside MFA_REQUIRED_ACTIONS, even at aal1", () => {
+    expect(
+      evaluateAuthorization(
+        subject(["campaign_manager"], "active", "aal1"),
+        {
+          action: "campaign.write",
+          exercisedRole: "campaign_manager",
+        },
+      ),
+    ).toEqual({
+      allowed: true,
+      profileId: "00000000-0000-4000-8000-000000000001",
+      action: "campaign.write",
+      exercisedRole: "campaign_manager",
+    });
+  });
+
+  it("gates every action named by docs/access-control-matrix.md Section 6 ('leads and administrative functions'), each with a role POLICY actually permits", () => {
+    // Paired with a role POLICY grants that exact action -- otherwise the
+    // gate above (role_not_permitted) would fire first and this test
+    // would never reach the MFA check it exists to prove. lead.write and
+    // lead_status_event.write are commercial_liaison-only, not
+    // administrator, per the POLICY table itself.
+    const administrativeAndLeadActions = [
+      ["lead.read", "administrator"],
+      ["lead.write", "commercial_liaison"],
+      ["lead_delivery.read", "administrator"],
+      ["form_submission.read", "administrator"],
+      ["lead_consent.read", "administrator"],
+      ["lead_status_event.read", "administrator"],
+      ["lead_status_event.write", "commercial_liaison"],
+      ["lead_attribution.read", "administrator"],
+      ["user.read", "administrator"],
+      ["user.write", "administrator"],
+      ["user.approve", "administrator"],
+      ["audit.read", "administrator"],
+    ] as const;
+
+    for (const [action, role] of administrativeAndLeadActions) {
+      expect(
+        evaluateAuthorization(subject([role], "active", "aal1"), {
+          action,
+          exercisedRole: role,
+        }),
+      ).toEqual({
+        allowed: false,
+        reason: "mfa_required",
+      });
+    }
   });
 });
