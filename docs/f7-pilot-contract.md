@@ -90,7 +90,7 @@ The same fail-closed rule `docs/f4-production-qa-contract.md` §16 and `docs/f5-
 None of the following may be crossed by any F7 segment, dry run included, until explicitly and separately resolved:
 
 - **D-06 (consent)** — `Conditioned`. No real form may capture real personal data until final consent wording is legally approved.
-- **D-07 (retention)** — `Conditioned`. No real lead may be stored until a final retention/anonymization/deletion period is approved.
+- **D-07 (retention)** — `Decided` for non-converting leads (2026-08-11): 6 months from the last interaction event, then anonymize/delete — see `docs/decision-register.md` §9. Retention for leads that do convert remains undefined and is not authorized by this clearing. This blocker is cleared only for the non-converting case; D-06 still blocks any real capture regardless.
 - **D-08 (`MC-REG-001` pilot scope)** — `Conditioned` (moved from `Provisional` on 2026-08-11; see `docs/decision-register.md` §10 governance note). The product owner was asked directly and confirmed the pilot campaign has not yet been scoped — this is a live, acknowledged open item, not a silently lapsed default. Before any real launch, the product owner must approve the eight open scope elements D-08 already lists (cities/regions, included projects, thesis, platforms, organic/paid mix, maximum budget, operational/commercial owners, start/pause/stop criteria) as a fresh decision.
 - **MFA / named privileged roles (G0-R05)** — still open per every prior gate review; unresolved by F1-F6 and unresolved by this contract.
 - **Real destination, credential or external provider call** — none may exist anywhere in the F7 dry run, per the same rule §4.4/§9 of `docs/f5-distribution-measurement-contract.md` already fixed for F5.
