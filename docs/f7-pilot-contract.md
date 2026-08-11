@@ -91,7 +91,7 @@ None of the following may be crossed by any F7 segment, dry run included, until 
 
 - **D-06 (consent)** — `Conditioned`. No real form may capture real personal data until final consent wording is legally approved.
 - **D-07 (retention)** — `Conditioned`. No real lead may be stored until a final retention/anonymization/deletion period is approved.
-- **D-08 (`MC-REG-001` pilot scope)** — `Provisional`, and its own text states the decision "expires before Phase 3 begins." Phase 3 closed without this expiration being formally revisited — that lapse is itself an open item, not a resolved one. Before any real launch, the product owner must approve the open scope elements D-08 already lists (cities/regions, included projects, thesis, platforms, organic/paid mix, maximum budget, operational/commercial owners, start/pause/stop criteria) as a fresh decision, not by treating the original provisional entry as still current by default.
+- **D-08 (`MC-REG-001` pilot scope)** — `Conditioned` (moved from `Provisional` on 2026-08-11; see `docs/decision-register.md` §10 governance note). The product owner was asked directly and confirmed the pilot campaign has not yet been scoped — this is a live, acknowledged open item, not a silently lapsed default. Before any real launch, the product owner must approve the eight open scope elements D-08 already lists (cities/regions, included projects, thesis, platforms, organic/paid mix, maximum budget, operational/commercial owners, start/pause/stop criteria) as a fresh decision.
 - **MFA / named privileged roles (G0-R05)** — still open per every prior gate review; unresolved by F1-F6 and unresolved by this contract.
 - **Real destination, credential or external provider call** — none may exist anywhere in the F7 dry run, per the same rule §4.4/§9 of `docs/f5-distribution-measurement-contract.md` already fixed for F5.
 - **Full contact PII reaching logs or an unmasked view** outside the roles `docs/access-control-matrix.md` §14.1 names — applies to F7 exactly as it applies everywhere else.
@@ -105,7 +105,7 @@ S7-001 is acceptable only when:
 3. The UAT script (§5) is fixed with a named evidence requirement per step.
 4. The publication-channel reading (§7) is explicit: manual record, not a live API integration.
 5. The content-generation-engine question (§8) is raised as an open decision, not silently resolved either way.
-6. Real-launch blockers (§10) are named explicitly, including the lapsed D-08 expiration.
+6. Real-launch blockers (§10) are named explicitly, including D-08 (formally re-reviewed 2026-08-11; scope remains undefined, no longer a silently lapsed provisional — see `docs/decision-register.md` §10 governance note).
 7. No real external integration, credential or personal-data path is introduced by this contract or authorized for any F7 segment.
 
 ## 12. Responsibility allocation for F7 segments
