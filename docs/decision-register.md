@@ -29,7 +29,7 @@
 | D-05 | Initial lead-delivery channel | Decided | Product owner and commercial liaison | Adapter implementation before real delivery |
 | D-06 | Consent and privacy | Conditioned | Product owner and legal/privacy owner | Final approval before any public form or real lead |
 | D-07 | Lead retention | Conditioned | Product owner and legal/privacy owner | Final approval before any real lead is stored |
-| D-08 | MC-REG-001 pilot scope | Provisional | Product owner | Exact scope before Phase 3 campaign configuration |
+| D-08 | MC-REG-001 pilot scope | Conditioned | Product owner | Eight scope elements before Phase 3 campaign configuration; campaign design not yet started |
 | D-09 | Human codes and lifecycle-state representation | Decided | Product owner | None for S1-008 |
 | D-10 | Restricted-data physical isolation (schema separation) | Decided | Product and technical owners | Lead-table migrations depend on this model |
 | D-11 | Phase 2/Phase 3 scope boundary (Evidencia y claims vs. Campañas y contenido) | Decided | Product owner | None for Sprint 2 |
@@ -181,7 +181,7 @@ This condition does not authorize storing real leads. Its treatment at G0 must b
 
 ## 10. D-08 — MC-REG-001 pilot scope
 
-### Provisional decision
+### Conditioned decision
 
 `MC-REG-001` remains the first controlled regional real-estate investment campaign and the end-to-end pilot identifier.
 
@@ -200,9 +200,13 @@ Before Phase 3 campaign configuration, the product owner must approve:
 - operational and commercial owners;
 - start, pause and stop criteria.
 
-### Expiration
+None of the eight elements above is approved yet. The campaign itself has not been designed — confirmed directly by the product owner (2026-08-11); this is not an oversight, the work is simply not started.
 
-This provisional decision expires before Phase 3 begins. It cannot authorize campaign activation or paid media by itself.
+### Status history
+
+As originally written, this decision expired "before Phase 3 begins." Phase 3 closed without a formal revisit, and the entry was treated as still current by default rather than being reconfirmed — `docs/f7-s7-003-launch-readiness-checklist.md` row 3 first flagged this as an open governance gap, not a resolved condition. Reconfirmed 2026-08-11: status moved from `Provisional` (lapsed, unreviewed) to `Conditioned` (reviewed; direction unchanged; all eight scope elements remain genuinely open, no date set). This closes the governance gap — someone reviewed it — without inventing any of the eight elements.
+
+It cannot authorize campaign activation or paid media by itself.
 
 ## 11. D-09 — Human codes and lifecycle-state representation
 
