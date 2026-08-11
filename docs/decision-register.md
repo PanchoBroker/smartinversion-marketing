@@ -5,7 +5,7 @@
 - **Work item:** S0-019 / Gate G0 review
 - **Status:** Under Gate G0 review
 - **Owner:** Smartinversion product owner
-- **Updated:** 2026-08-11 (D-07 decided: 6-month retention for non-converting leads; D-19 added: informed waiver of prior external legal review)
+- **Updated:** 2026-08-11 (D-06 decided: consent notice approved by the product owner directly; D-07 decided: 6-month retention for non-converting leads; D-19 added: informed waiver of prior external legal review)
 - **Purpose:** Record the status, owner, rationale, evidence and blocking effect of decisions D-01 through D-19.
 
 ## 1. Decision states
@@ -27,7 +27,7 @@
 | D-03 | Application domain | Decided | Technical owner | DNS activation before production |
 | D-04 | Initial users and roles | Decided at role-model level | Product and technical owners | Named assignments before authentication rollout |
 | D-05 | Initial lead-delivery channel | Decided | Product owner and commercial liaison | Adapter implementation before real delivery |
-| D-06 | Consent and privacy | Conditioned | Product owner and legal/privacy owner | Final approval before any public form or real lead |
+| D-06 | Consent and privacy | Decided | Product owner | Real launch still blocked independently by D-08 and G0-R05 |
 | D-07 | Lead retention | Decided (non-converting leads only) | Product owner | Retention for converting leads still undefined |
 | D-08 | MC-REG-001 pilot scope | Conditioned | Product owner | Exact scope before real campaign activation |
 | D-09 | Human codes and lifecycle-state representation | Decided | Product owner | None for S1-008 |
@@ -143,26 +143,41 @@ The internal-inbox adapter, authorization rules, acknowledgement behavior and no
 
 ## 8. D-06 — Consent and privacy
 
-### Current direction
+### Decision
 
-The form must record affirmative consent using:
+The public lead-capture form's consent notice text is approved, per `docs/d06-d07-consent-retention-draft-proposal.md` §2.2. It records affirmative consent using: an immutable notice version, the hash of the displayed notice text, a server-authoritative acceptance timestamp, the applicable purpose, the form submission reference, and the textual ARCO+ right. It discloses the optional income-range field as sensitive-data treatment (Art. 16, Ley 21.719) when the prospect completes it, and states the 6-month non-converting-lead retention period D-07 (§9) already fixed. The campaign is displayed under the generic, versionable public name "Campaña v1" — this decouples the notice from D-08's still-open scope elements, since the display name does not need to encode the campaign's final cities, thesis or budget; future pilot runs increment the version. The ARCO+ contact address is `contacto@smartinversion.cl`.
 
-- an immutable notice version;
-- the hash of the displayed notice text;
-- a server-authoritative acceptance timestamp;
-- the applicable purpose;
-- the form submission reference;
-- auditable correction or withdrawal handling when implemented.
+A full correction/withdrawal *mechanism* (not just the textual right) remains deferred — see Residual condition.
 
-### Condition
+### Rationale
 
-The final production wording has not been legally approved.
+Per D-19 (§21), Ley 21.719 does not require external legal sign-off as a condition to operate, and the product owner accepts the resulting compliance risk directly rather than waiting on outside counsel. The product owner, as accountable owner, approves this wording personally.
 
-Draft identifiers such as `contact_data_v1_draft` are synthetic-only and must never authorize production capture or delivery.
+### Scope
+
+This decision approves the notice text, its public campaign display name and its ARCO+ contact address. It does not resolve D-08 (`MC-REG-001` campaign scope, §10) — the campaign's eight scope elements remain unapproved and continue to block real launch independently of this decision. It does not build the correction/withdrawal mechanism, and it does not assign who operationally staffs `contacto@smartinversion.cl` for ARCO+ requests — both remain open (Residual condition).
+
+### Residual condition
+
+- A full correction/withdrawal *mechanism* (a real route or process, not just the textual right) remains unbuilt — deferred, not blocking this approval.
+- `contacto@smartinversion.cl` is approved as the address named in the notice; who operationally monitors and responds to it within the law's response deadlines (Art. 10-11) is a separate open item (gap #2, `docs/ley-21719-compliance-gap-analysis.md`).
+- This decision does not by itself authorize real capture: D-08's campaign-scope conditions and G0-R05's remaining named-role-assignment sub-item are independent blockers, per `docs/f7-pilot-contract.md` §10.
+- Draft identifiers such as `contact_data_v1_draft` remain synthetic-only until the real form is wired to this approved text under a production version identifier (e.g. `contact_data_v1`) — an implementation step, not part of this decision.
+
+### Evidence
+
+- `docs/d06-d07-consent-retention-draft-proposal.md` §2 (approved notice text)
+- Ley 21.719, Art. 2° letra g), Art. 16 (sensitive-data classification and treatment)
+- `docs/decision-register.md` §21 (D-19, basis for approval without prior external legal review)
+- `docs/decision-register.md` §9 (D-07, the retention period the notice text now states)
+
+### Approval
+
+Decided directly by the product owner (Francisco) on 2026-08-11, without prior external legal review, per D-19.
 
 ### Gate implication
 
-This condition does not authorize public forms or real personal data. Its treatment at G0 must be explicit because Sprint 0 v1.0 described D-06 as blocking, while later repository contracts defer final wording until before public activation.
+This condition no longer blocks specifically on D-06. Real launch of a public form remains blocked independently by D-08 (campaign scope, §10) and by G0-R05's remaining sub-item (named privileged-role assignment). Sprint 0 v1.0 described D-06 as blocking; this entry is the controlled update that resolves it, per Section 23's change-control rule.
 
 ## 9. D-07 — Lead retention
 
