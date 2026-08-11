@@ -5,7 +5,7 @@
 - **Work item:** S0-019 / Gate G0 review
 - **Status:** Under Gate G0 review
 - **Owner:** Smartinversion product owner
-- **Updated:** 2026-08-09 (Gate G5: D-17 added)
+- **Updated:** 2026-08-11 (D-08 formally re-reviewed: state moved Provisional → Conditioned, scope confirmed still undefined by the product owner, not silently lapsed)
 - **Purpose:** Record the status, owner, rationale, evidence and blocking effect of decisions D-01 through D-16.
 
 ## 1. Decision states
@@ -29,7 +29,7 @@
 | D-05 | Initial lead-delivery channel | Decided | Product owner and commercial liaison | Adapter implementation before real delivery |
 | D-06 | Consent and privacy | Conditioned | Product owner and legal/privacy owner | Final approval before any public form or real lead |
 | D-07 | Lead retention | Conditioned | Product owner and legal/privacy owner | Final approval before any real lead is stored |
-| D-08 | MC-REG-001 pilot scope | Provisional | Product owner | Exact scope before Phase 3 campaign configuration |
+| D-08 | MC-REG-001 pilot scope | Conditioned | Product owner | Exact scope before real campaign activation |
 | D-09 | Human codes and lifecycle-state representation | Decided | Product owner | None for S1-008 |
 | D-10 | Restricted-data physical isolation (schema separation) | Decided | Product and technical owners | Lead-table migrations depend on this model |
 | D-11 | Phase 2/Phase 3 scope boundary (Evidencia y claims vs. Campañas y contenido) | Decided | Product owner | None for Sprint 2 |
@@ -181,15 +181,13 @@ This condition does not authorize storing real leads. Its treatment at G0 must b
 
 ## 10. D-08 — MC-REG-001 pilot scope
 
-### Provisional decision
+### Current direction
 
-`MC-REG-001` remains the first controlled regional real-estate investment campaign and the end-to-end pilot identifier.
+`MC-REG-001` remains the first controlled regional real-estate investment campaign and the end-to-end pilot identifier. This does not change: Sprint 1 and F7's synthetic dry run (S7-002) used only deterministic synthetic campaign, attribution and lead data, and that boundary is unaffected by anything in this entry.
 
-Sprint 1 uses only deterministic synthetic campaign, attribution and lead data.
+### Condition
 
-### Open scope elements
-
-Before Phase 3 campaign configuration, the product owner must approve:
+None of the eight scope elements below has been defined. The product owner confirmed directly on 2026-08-11 that the pilot campaign has simply not been scoped yet — this is intentionally open, not an oversight:
 
 - cities or regions;
 - included projects;
@@ -200,9 +198,15 @@ Before Phase 3 campaign configuration, the product owner must approve:
 - operational and commercial owners;
 - start, pause and stop criteria.
 
-### Expiration
+### Gate implication
 
-This provisional decision expires before Phase 3 begins. It cannot authorize campaign activation or paid media by itself.
+This condition does not authorize campaign activation, paid media, or any real external call. Real launch of `MC-REG-001` remains blocked until the product owner defines and approves all eight elements as a fresh decision, following the same pattern as D-06/D-07.
+
+### Governance note (2026-08-11)
+
+The original entry was `Provisional` and stated it "expires before Phase 3 begins." Phase 3 closed without a formal revisit, and `docs/f7-s7-003-launch-readiness-checklist.md` (2026-08-10) flagged that lapse itself as an open governance gap — the decision was being treated as valid by default, not because anyone had reconfirmed it.
+
+On 2026-08-11 the product owner was asked directly and confirmed the campaign remains undefined. This entry moves from `Provisional` (a time-boxed state that had already lapsed) to `Conditioned` — the same state D-06/D-07 use for "direction selected, approval pending" — because there is no fixed date by which the campaign will be scoped, only a condition (real launch) it must clear before. This closes the governance gap (someone has now explicitly looked at it) without inventing scope elements that have not actually been decided.
 
 ## 11. D-09 — Human codes and lifecycle-state representation
 
