@@ -2,8 +2,8 @@
 
 ## Marketing Content — Smartinversion
 
-- **Work item:** S1-001; MFA (§19) added 2026-08-10 against G0-R05
-- **Status:** Implemented and validated locally; hosted-project verification pending
+- **Work item:** S1-001; MFA (§19) added 2026-08-10 against G0-R05; hosted-project auth verification (§20) added 2026-08-11
+- **Status:** Implemented and validated locally; hosted-project auth/session settings verified and corrected 2026-08-11 (§20) — named role assignment remains the only open G0-R05 sub-item
 - **Data boundary:** Synthetic identities only
 - **Production authorization:** Not granted
 - **Updated:** 2026-08-10
@@ -322,10 +322,27 @@ This is a Layer-1 (API-boundary) gate, evaluated before any RPC or table read. I
 ### 19.4 What remains open (not closed by this section)
 
 - **Named role assignments**: the *mechanism* (`public.role_assignments`, with `assigned_by`/`valid_from`/`valid_until`/`revoked_at`) has existed since S1-002 and is exercised by every role-gated route in F1-F7. What G0-R05 actually flagged as open is that no *real, named human* — only synthetic fixtures — has ever held an assignment. That is an operational action for the product owner (who, in which role, effective when), not an engineering deliverable; this document does not invent one.
-- **Session policy**: §8-§9 already fixed the baseline configuration and Supabase Free's known limitations (no fixed session timebox, no inactivity timeout, no single-session enforcement) before this section existed. §18's own words still apply unchanged: "This validation does not prove the configuration of the hosted Supabase project" — hosted-project verification remains a separate, unclosed action, not something this section's local-environment MFA work can confirm.
+- **Named role assignments** remain the only unclosed item of the three G0-R05 originally flagged — see §20 for the hosted-project verification, which is now closed.
 - **Postgres/RLS-level MFA mirror**: see §19.2's closing paragraph — disclosed as a defense-in-depth gap, not built.
 
-## 20. References
+## 20. Hosted-project auth verification (G0-R05)
+
+§18 originally stated: "This validation does not prove the configuration of the hosted Supabase project. Hosted-project settings, redirect allowlists and invitation behavior must be verified independently before staging or production acceptance." That verification was performed on 2026-08-11 by reading the live dashboard of the hosted project (`nhwmiwkjuwgleczawsdg`, `sa-east-1`/São Paulo — confirms D-02) directly, not assumed from local `config.toml`.
+
+### 20.1 Findings against the §8/§9 baseline
+
+Two real deviations were found, both corrected the same session with the product owner's explicit authorization:
+
+- **Public sign-up was enabled** on the hosted project ("Allow new users to sign up" = on) — a direct violation of §8's "Public sign-up | Disabled" row and of this document's own S1-001 acceptance criterion (§18: "S1-001 cannot be accepted while... public sign-up remains enabled in the hosted project"). **Fixed**: toggled off and saved.
+- **Password policy was weaker than §8 requires**: minimum length was 6 (policy requires 12), and "Password requirements" had no composition rule selected (policy requires lowercase + uppercase + digit + symbol). **Fixed**: minimum length set to 12, composition rule set to "Lowercase, uppercase letters, digits and symbols."
+
+Everything else checked matched the documented baseline exactly: anonymous sign-in disabled, confirm-email enabled, Email OTP expiration 3600s, refresh-token reuse interval 10s, leaked/compromised refresh-token detection enabled.
+
+### 20.2 Not yet closed by this verification
+
+Site URL is still `http://localhost:3000` and the Redirect URLs allowlist is empty (no entries). This is consistent with D-03's own residual condition (DNS/production-domain activation still pending) rather than a new gap — but it means the invitation-redirect requirement in §4/§12 ("Invitation redirects must use an allowlisted exact URL") is not yet configured on the hosted project either. This must be set before any real invitation is sent, tracked alongside D-03's existing DNS-activation condition, not as a separate open item.
+
+## 21. References
 
 - Supabase SSR client: https://supabase.com/docs/guides/auth/server-side/creating-a-client
 - Supabase sessions: https://supabase.com/docs/guides/auth/sessions
