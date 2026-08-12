@@ -59,6 +59,11 @@ interface LeadRow {
   first_received_at: string;
   created_at: string;
   contact_masked: boolean;
+  // Widened 2026-08-12 (admin interface scoping, lead assignment
+  // metadata): informational only, not PII -- see
+  // restricted.leads.assigned_liaison_profile_id's own column comment
+  // (20260922000000_lead_assignment_metadata_rpc.sql).
+  assigned_liaison_profile_id: string | null;
 }
 
 export async function GET(request: Request): Promise<Response> {

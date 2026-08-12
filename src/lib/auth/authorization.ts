@@ -87,6 +87,7 @@ export const AUTHORIZATION_ACTIONS = [
   "learning_record.write",
   "lead.read",
   "lead.write",
+  "lead.assign",
   "lead.export",
   "lead_delivery.read",
   "form_submission.read",
@@ -148,6 +149,7 @@ export interface AuthorizationSubject {
 export const MFA_REQUIRED_ACTIONS: ReadonlySet<AuthorizationAction> = new Set([
   "lead.read",
   "lead.write",
+  "lead.assign",
   "lead.export",
   "lead_delivery.read",
   "form_submission.read",
@@ -685,6 +687,17 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
     "results_analyst",
   ],
   "lead.write": ["administrator", "commercial_liaison"],
+
+  // Lead assignment metadata (2026-08-12, admin interface scoping):
+  // administrator-only, deliberately narrower than lead.write. Kept as
+  // its own action rather than folded into lead.write so a
+  // commercial_liaison caller is rejected at this app-authorization
+  // layer, not only inside public.assign_lead_liaison itself -- same
+  // "admit exactly the roles that can act" precedent used throughout
+  // this map. See that RPC's migration header for why assignment is a
+  // supervisory action, unlike reclassify_lead's operational
+  // corrections (commercial_liaison + administrator).
+  "lead.assign": ["administrator"],
 
   // S5-008 (iteration 4/N): lead_deliveries (docs/access-control-matrix.md
   // Section 14). All four roles that hold a real cell are admitted at
