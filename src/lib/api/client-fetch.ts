@@ -180,3 +180,68 @@ export function activeProfileIdsForRoleCode(
 
   return ids;
 }
+
+// Campaign / ContentItem / ContentVersion (2026-08-12, Publicaciones):
+// ContentItem and ContentVersion are promoted here from
+// src/components/admin/qa/api.ts the moment a second screen
+// (Publicaciones) needs the exact same shape -- same promotion trigger
+// client-fetch.ts's own header already called out and Leads already
+// exercised once for Role/Profile/RoleAssignment. Campaign is new here
+// (no prior screen read GET /api/v1/campaigns), added as a catalog
+// fetcher alongside Role/Profile for the same reason: any future screen
+// that needs to pick a campaign (this one, and eventually the deferred
+// Campañas screen) reads from here rather than re-declaring the shape.
+
+export interface Campaign {
+  id: string;
+  code: string;
+  name: string;
+  opportunity_id: string | null;
+  owner_profile_id: string;
+  primary_objective: string | null;
+  primary_metric_definition_id: string | null;
+  starts_at: string | null;
+  ends_at: string | null;
+  pause_reason: string | null;
+  closed_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ContentItem {
+  id: string;
+  campaign_id: string;
+  code: string;
+  content_type: string;
+  message: string | null;
+  hook: string | null;
+  status: string;
+}
+
+export interface ContentVersion {
+  id: string;
+  content_item_id: string;
+  version_number: number;
+  script: string | null;
+  caption: string | null;
+  change_summary: string | null;
+  master_asset_id: string | null;
+  checksum: string | null;
+  status: string;
+  locked_at: string | null;
+  created_at: string;
+}
+
+export function fetchCampaigns(): Promise<Campaign[]> {
+  return fetchResourceList<Campaign>("/api/v1/campaigns?limit=100");
+}
+
+export function fetchContentItems(): Promise<ContentItem[]> {
+  return fetchResourceList<ContentItem>("/api/v1/pieces?limit=100");
+}
+
+export function fetchContentVersions(): Promise<ContentVersion[]> {
+  return fetchResourceList<ContentVersion>(
+    "/api/v1/content-versions?limit=100",
+  );
+}

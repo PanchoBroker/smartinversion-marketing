@@ -21,29 +21,14 @@
 // next objective once this one is validated.
 import { fetchResourceList, postResource } from "@/lib/api/client-fetch";
 
-export interface ContentVersion {
-  id: string;
-  content_item_id: string;
-  version_number: number;
-  script: string | null;
-  caption: string | null;
-  change_summary: string | null;
-  master_asset_id: string | null;
-  checksum: string | null;
-  status: string;
-  locked_at: string | null;
-  created_at: string;
-}
-
-export interface ContentItem {
-  id: string;
-  campaign_id: string;
-  code: string;
-  content_type: string;
-  message: string | null;
-  hook: string | null;
-  status: string;
-}
+// ContentItem/ContentVersion promoted to client-fetch.ts (2026-08-12,
+// Publicaciones) the moment a second screen needed the exact same shape
+// -- same promotion trigger already exercised once for Leads/
+// role-assignments. Re-exported here so qa-screen.tsx's existing imports
+// from "./api" keep working unchanged, same pattern
+// role-assignments/api.ts uses for Role/Profile/RoleAssignment.
+export type { ContentItem, ContentVersion } from "@/lib/api/client-fetch";
+export { fetchContentItems, fetchContentVersions } from "@/lib/api/client-fetch";
 
 export interface QaChecklist {
   id: string;
@@ -116,26 +101,6 @@ export interface QaReviewItemResult {
   comments: string | null;
 }
 
-// limit=100 without cursor follow-up, same call already made for every
-// other admin screen (Regla 11, no evidence yet of these tables crossing
-// 100 rows). Worth flagging here specifically: qa_reviews and
-// qa_review_item_results are append-only audit tables (S4-005) that only
-// ever grow -- once a real project accumulates more than 100 total
-// reviews/results across ALL content versions, this global cap (ordered
-// by created_at, no per-content-version filter available server-side
-// today) can silently hide older reviews for a version still sitting in
-// the queue. No evidence of that today; flagged so it is not rediscovered
-// as a mystery later.
-export function fetchContentVersions(): Promise<ContentVersion[]> {
-  return fetchResourceList<ContentVersion>(
-    "/api/v1/content-versions?limit=100",
-  );
-}
-
-export function fetchContentItems(): Promise<ContentItem[]> {
-  return fetchResourceList<ContentItem>("/api/v1/pieces?limit=100");
-}
-
 export function fetchQaChecklists(): Promise<QaChecklist[]> {
   return fetchResourceList<QaChecklist>("/api/v1/qa-checklists?limit=100");
 }
@@ -146,6 +111,16 @@ export function fetchQaChecklistItems(): Promise<QaChecklistItem[]> {
   );
 }
 
+// limit=100 without cursor follow-up, same call already made for every
+// other admin screen (Regla 11, no evidence yet of these tables crossing
+// 100 rows). Worth flagging here specifically: qa_reviews and
+// qa_review_item_results are append-only audit tables (S4-005) that only
+// ever grow -- once a real project accumulates more than 100 total
+// reviews/results across ALL content versions, this global cap (ordered
+// by created_at, no per-content-version filter available server-side
+// today) can silently hide older reviews for a version still sitting in
+// the queue. No evidence of that today; flagged so it is not rediscovered
+// as a mystery later.
 export function fetchQaReviews(): Promise<QaReview[]> {
   return fetchResourceList<QaReview>("/api/v1/qa-reviews?limit=100");
 }
