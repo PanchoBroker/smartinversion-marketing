@@ -100,10 +100,12 @@ export const AUTHORIZATION_ACTIONS = [
   "metrics.approve",
   // Static role catalog (S1-002), read-only, needed by the
   // role-assignments admin screen (2026-08-12,
-  // 20260920000000_role_and_profile_administrator_select_rls.sql).
-  // Kept separate from user.read/write/approve below: reading role
-  // names is not an "administrative function" under Section 6, so it
-  // is deliberately NOT added to MFA_REQUIRED_ACTIONS.
+  // src/app/api/v1/roles/route.ts). RLS already fully covers this
+  // (roles_select_active_user, S1-004) -- this is only the app-layer
+  // action, no new migration needed. Kept separate from
+  // user.read/write/approve below: reading role names is not an
+  // "administrative function" under Section 6, so it is deliberately
+  // NOT added to MFA_REQUIRED_ACTIONS.
   "role.read",
   "user.read",
   "user.write",
