@@ -580,3 +580,27 @@ Documento permanente y acumulativo de la Metodología Oficial de Trabajo 4.0. Vi
 **Gap real encontrado durante el caso, no corregido en el propio caso (Regla 1):** `databaseErrorResponse` (`errors.ts`) no mapea el código Postgres `23P01` (violación de restricción de exclusión, ej. `role_assignments_no_overlapping_periods`) -- cae a `500 internal_error` en vez de `409 conflict`. Cualquier pantalla nueva que escriba sobre una tabla con una restricción `exclude using gist` (`role_assignments` es la única hoy) hereda este mismo gap hasta que se corrija una sola vez en `errors.ts`.
 
 **Caso real:** `/app/role-assignments` (2026-08-12), `src/components/admin/role-assignments/{api.ts,role-assignments-screen.tsx}`. `npm run check` verde (60 archivos / 480 tests, build+lint+typecheck limpios) antes de comitear.
+
+**Actualización (2026-08-12, mismo día, pantalla Leads):** el trigger de promoción anticipado arriba ocurrió tal como se predijo. Leads necesitó exactamente los mismos fetchers de `Role`/`Profile`/`RoleAssignment` que Roles -- se extrajeron a `src/lib/api/client-fetch.ts` (junto con `ApiRequestError`, el parser de envelope, y un `activeProfileIdsForRoleCode` nuevo que espeja `activeRoleCodes` de `private-route.ts` para picks client-side de "perfiles con rol X activo"). `role-assignments/api.ts` quedó como una capa fina que reexporta desde `client-fetch.ts` más su única mutación propia (`createRoleAssignment`) -- `role-assignments-screen.tsx` no necesitó ningún cambio porque los nombres reexportados son idénticos. Regla de decisión confirmada en la práctica: promover solo lo genérico (catálogos, envelope, errores), nunca las mutaciones de escritura específicas de cada pantalla.
+
+---
+
+## Patrón: `databaseErrorResponse` reenvía `details.message` crudo para SQLSTATE `23514`, pero no para `42501` -- mapear ambos casos distinto en `describeApiError`
+
+**Cuándo aplica:** cualquier pantalla que escriba contra una tabla cuyos triggers levanten excepciones de negocio con mensaje propio (`raise exception 'ALGO_DESCRIPTIVO'`), patrón usado en todo el dominio S4-005/S4-006/S4-009 (QA, y previsiblemente Publicaciones/Campañas comparten el mismo estilo de trigger).
+
+**Mecánica:** `src/lib/api/errors.ts#databaseErrorResponse` mapea `23502`/`23503`/`23514` a `400 invalid_request` **incluyendo** `{db_code, message}` en `details` -- el mensaje crudo de Postgres (literalmente el texto de `raise exception`) llega intacto al cliente. `42501` (insufficient privilege / RLS o gate de trigger), en cambio, mapea a `403 authorization_denied` con **solo** `{layer: "rls"}`, sin mensaje. Consecuencia práctica para `describeApiError` en el cliente: para errores `400` vale la pena hacer `details.message?.includes("NOMBRE_EXCEPCION")` y dar una explicación específica y accionable (ver ejemplo abajo); para errores `403` no hay mensaje que inspeccionar, así que el mensaje debe ser genérico pero mencionar la causa más probable (falta de rol activo, o -- cuando aplica -- que el actor no es quien inició el flujo).
+
+**Fix aplicado / receta:** en el `describeApiError` de la pantalla, revisar primero `details.message` contra los nombres de excepción documentados en el header de la migración/ruta correspondiente (ej. `S4_005_REVIEW_ITEM_RESULTS_INCOMPLETE`, `S4_005_REQUIRED_ITEMS_NOT_APPROVED`, `S4_005_OPEN_BLOCKING_DEFECTS`, `S4_005_TERMINAL_REVIEW_IMMUTABLE`, `S4_005_REQUIRED_ITEM_NOT_APPLICABLE_FORBIDDEN`) antes de caer al mapeo genérico por `status`.
+
+**Caso real:** `/app/qa` (2026-08-12), `src/components/admin/qa/qa-screen.tsx#describeApiError`.
+
+---
+
+## Patrón: acotar el alcance con `AskUserQuestion` antes de codear una pantalla que toca múltiples tablas con reglas de negocio entrelazadas
+
+**Cuándo aplica:** cualquier pantalla nueva donde la investigación de evidencia (Regla 11) revela más de 2-3 tablas relacionadas con reglas de negocio no triviales entre sí (ej. QA: `qa_checklists`+`qa_checklist_items`+`qa_reviews`+`qa_review_item_results`+`qa_defects`, más el propio `content_versions`). Construir "todo lo que el backend permite" de una sola vez deja de ser "un solo objetivo" (Regla 1) y arriesga construir algo que no coincide con lo que el usuario esperaba de una frase corta como "cola de aprobación/rechazo" en el Bloque B9.
+
+**Mecánica:** en vez de asumir el alcance completo o el mínimo posible, se presentan 2-3 opciones reales y concretas (no genéricas) vía `AskUserQuestion`, cada una con su costo/beneficio explícito, construidas a partir de la evidencia ya leída (rutas reales, triggers reales, contrato funcional) -- nunca antes de leer el backend real, porque las opciones tienen que ser ciertas, no hipotéticas. El resultado no es solo "qué construir" sino también qué queda explícitamente fuera y documentado como candidato al siguiente objetivo (evita que se pierda de vista, mismo criterio que "placeholder honesto").
+
+**Caso real:** `/app/qa` (2026-08-12) -- 3 opciones presentadas ("cola completa por dimensión" / "cola + defectos en un paso" / "solo decisión sin evaluación ítem por ítem"), usuario eligió la primera. Quedaron fuera, documentados: gestión de checklists/defectos, y el paso `content_versions` que saca la versión de `qa_pending` (acción distinta, `content_version.approve`, no `qa_review.write`).

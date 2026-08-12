@@ -550,6 +550,50 @@ Sin interfaz alguna hoy (solo API + base de datos, se opera por SQL directo o pa
 
 **Próximo objetivo:** Leads (`/app/leads`), ver orden restante en Bloque B9.
 
+## Bloque B12 — Pantalla Leads construida, validada y mergeada (2026-08-12)
+
+**Contexto de arranque:** sesión Modo A continuando sobre el cierre del Bloque B11 (Asignación de roles mergeado). Objetivo único: construir `/app/leads` como pantalla real e intervenible (Bloque B9), reemplazando el placeholder de PR #149.
+
+**Archivos nuevos/modificados:**
+- `src/lib/api/client-fetch.ts` (nuevo) -- cliente browser compartido, promovido desde `role-assignments/api.ts` en el momento exacto en que una segunda pantalla (Leads) necesitó las mismas formas (`ApiRequestError`, envelope parser, `Role`/`Profile`/`RoleAssignment` + sus fetchers, y el nuevo `activeProfileIdsForRoleCode` que espeja `activeRoleCodes` de `private-route.ts` para uso en pickers cliente).
+- `src/components/admin/role-assignments/api.ts` -- reescrito para reexportar desde `client-fetch.ts`; `role-assignments-screen.tsx` no cambió ni una línea (mismos nombres reexportados).
+- `src/components/admin/leads/api.ts` (nuevo) -- cliente de `GET /api/v1/leads`, `PATCH /api/v1/leads/{id}` (reclasificar), `PATCH /api/v1/leads/{id}/assignment` (enlace comercial).
+- `src/components/admin/leads/leads-screen.tsx` (nuevo) -- tabla + reclasificación (`duplicate`/`test`/`invalid`/`incomplete`, allowlist idéntico al de `reclassify_lead`) + asignación/desasignación de enlace comercial (administrator-only, picker construido cruzando `role-assignments`+`roles`+`profiles` por rol activo `commercial_liaison`).
+- `src/app/app/leads/page.tsx` -- reemplaza el placeholder.
+
+**Decisiones técnicas:** (1) sin control de revocación de rol -- backend no lo expone; (2) gap real `23P01`→500 en `errors.ts` (restricción de exclusión de `role_assignments`) detectado, documentado, no corregido (fuera del objetivo); (3) el picker de enlace comercial se degrada con gracia (se oculta con aviso) si el viewer no tiene `user.read`/administrator, en vez de romper toda la pantalla -- `lead.read` es más ancho (admin, commercial_liaison, campaign_manager, results_analyst) que `user.read` (admin-only).
+
+**Validación real:** `npm run check` verde (60/60 archivos, 480/480 tests, build+lint+typecheck limpios). **Comiteado, mergeado y rama borrada por el usuario.**
+
+**Próximo objetivo:** QA (`/app/qa`), ver orden restante en Bloque B9.
+
+## Bloque B13 — Pantalla QA (cola por dimensión) construida, validada y mergeada (2026-08-12)
+
+**Contexto de arranque:** sesión Modo A continuando sobre el cierre del Bloque B12 (Leads mergeado). El dominio QA real (`qa_checklists`/`qa_checklist_items`/`qa_reviews`/`qa_review_item_results`/`qa_defects`, S4-005/S4-009) es sustancialmente más grande que Roles/Leads -- antes de codear se usó `AskUserQuestion` para acotar el alcance explícitamente con el usuario en vez de asumirlo (Regla 9), presentando 3 opciones reales. El usuario eligió **"Cola completa por dimensión"**: cola de `content_versions` en `qa_pending` → por cada una, abrir/continuar una revisión por cada una de las 8 dimensiones fijas (`docs/f4-production-qa-contract.md` §9: estratégica/factual/financiera/visual/derechos/marca/técnica/conversión) → evaluar cada ítem del checklist activo → completar la decisión de la revisión (aprobado/corrección requerida/devuelto/bloqueado/archivado).
+
+**Archivos nuevos:**
+- `src/components/admin/qa/api.ts` -- tipos + fetchers de `content-versions`, `pieces` (= `content_items`), `qa-checklists`, `qa-checklist-items`, `qa-reviews`, `qa-review-item-results`, y las 3 mutaciones (`createQaReview`, `recordQaReviewItemResult`, `completeQaReview`).
+- `src/components/admin/qa/qa-screen.tsx` -- cola + panel por dimensión: abrir revisión, evaluar ítems (bloquea "No aplica" en ítems obligatorios; exige comentario salvo resultado "Aprobado", espejando `qa_review_item_results_comment_required`), completar decisión (bloquea la opción "Aprobado" en el selector si algún ítem obligatorio no quedó en "Aprobado", espejando `S4_005_REQUIRED_ITEMS_NOT_APPROVED` antes de golpear el servidor).
+- `src/app/app/qa/page.tsx` -- wrapper mínimo.
+
+**Explícitamente fuera de esta iteración (flagged, no asumido en silencio):** gestión de `qa_checklists`/`qa_checklist_items` (se asume que ya existe un checklist `active` por `content_type` -- la pantalla muestra un aviso claro si no existe, no se rompe); gestión de `qa_defects` (abrir/resolver); y el paso que efectivamente saca la versión de `qa_pending` (`content_versions/[id]/promote-to-approval-pending` y `.../reject-qa`, acciones sobre un recurso distinto a `qa_reviews`, acción `content_version.approve`, approver-only). Sin estas dos últimas piezas, una versión puede terminar con las 8 dimensiones aprobadas y seguir viéndose en la cola -- candidato explícito para el siguiente objetivo de este dominio.
+
+**Gap real de paginación detectado y documentado (no corregido):** `qa_reviews` y `qa_review_item_results` son tablas de auditoría append-only (solo crecen) leídas con `limit=100` sin filtro por versión en el servidor (`resource-routes.ts` no soporta filtro por columna arbitraria, solo `limit`/`cursor` por `created_at`). Sin evidencia hoy de que esto sea un problema real (proyecto joven, pocas revisiones), pero en cuanto el total de revisiones/resultados del sistema supere 100 filas, la pantalla puede dejar de ver historial de versiones antiguas en la cola sin ningún error visible. Mismo patrón de gap ya documentado para Leads/`errors.ts` (23P01).
+
+**Mapeo de errores nuevo:** a diferencia de Roles/Leads, QA mapea también `details.message` (no solo `status`/`details.reason`/`details.field`) porque `databaseErrorResponse` sí reenvía el mensaje crudo de Postgres para SQLSTATE `23514` (las excepciones `S4_005_*` de los triggers de este dominio), a diferencia de `42501` que no lo reenvía -- patrón nuevo, útil para cualquier pantalla futura que dependa de triggers ricos en reglas de negocio (mismo dominio que Publicaciones/Campañas probablemente necesiten).
+
+**Validación real:** `npm run check` verde (60/60 archivos, 480/480 tests, build+lint+typecheck limpios). **Comiteado, mergeado y rama borrada por el usuario.**
+
+**Próximo objetivo (a decidir con el usuario al abrir el siguiente chat):** Publicaciones (`/app/publications`, siguiente en el orden original del Bloque B9) **o** cerrar primero los pendientes de QA que quedaron fuera (defectos + salida de `qa_pending`) -- el usuario no había decidido cuál al momento de pedir este Testigo.
+
+## Bloque B14 — Regla operativa nueva: pausa de actualizaciones silenciosas de Testigo/Índice/Patrones (2026-08-12)
+
+**Decisión del usuario, verbatim:** *"con respecto a lo ultimo de no emitir testigo, indice y patrones sin que lo pida, quiero que lo recuerdes y lo dejes estipulado en el testigo cuando te lo pida, esto debe quedar como regla porfavor."* Motivo explícito: el asistente estaba actualizando `indice-maestro.md`/`registro-de-patrones.md` y emitiendo Testigo automáticamente al cierre de cada objetivo (ritual de la Sección 9 de la Metodología, aplicado sin que se pidiera), generando consumo de tokens en segundo plano que el usuario no había solicitado para esa iteración puntual.
+
+**Regla nueva, vigente desde esta sesión en adelante, hasta que el usuario indique lo contrario:** el asistente **NO** actualiza `indice-maestro.md`, **NO** actualiza `registro-de-patrones.md`, y **NO** emite un Testigo Técnico Oficial al cerrar un objetivo, salvo que el usuario lo solicite explícitamente en ese momento (ej. "genera el testigo", "actualiza el índice/patrones", o la frase de rotación de la Sección 10 de la Metodología). Esto **modifica el comportamiento por defecto del Ritual de Cierre de Iteración (Sección 9)** de la Metodología 4.0 para esta sesión/proyecto: el ritual deja de ser automático y pasa a ser bajo demanda. El resto del ritual (Repomix, commit, Graphify) no cambia -- el asistente sigue entregando esos comandos exactos al cerrar cada objetivo, como siempre.
+
+**Efecto práctico observado en esta misma sesión:** los Bloques B12 (Leads) y B13 (QA) de este documento se escribieron recién ahora, en una sola pasada, al pedirse este Testigo -- no en el momento en que cada pantalla se cerró y validó. Esa es la brecha esperada bajo la regla nueva: el Índice/Registro quedan al día solo cuando se solicitan, no en tiempo real objetivo a objetivo.
+
 ## Bloque C — Contrato / negocio
 
 | Pieza | Estado | Referencia |
