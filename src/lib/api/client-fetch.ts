@@ -206,6 +206,19 @@ export interface Campaign {
   closed_at: string | null;
   created_at: string;
   updated_at: string;
+  // 2026-08-12 (Campañas admin screen): populated server-side by GET
+  // /api/v1/campaigns from state_transition_subjects (see that route's
+  // own header for why this can't be a plain column/join). Named
+  // "lifecycle_*", not "status"/"version": `campaigns` itself has its own
+  // `version` integer column (S1-008 optimistic concurrency for the row
+  // itself, not exposed on this interface, but real in the database) --
+  // reusing "version" here would be a confusing near-collision with a
+  // completely different counter. null only if the campaign's lifecycle
+  // subject is somehow missing (should not happen -- create_campaign()
+  // registers it atomically -- treated as a defensive case, not an
+  // error).
+  lifecycle_state: string | null;
+  lifecycle_version: number | null;
 }
 
 export interface ContentItem {

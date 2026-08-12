@@ -33,7 +33,12 @@ export interface ResourceConfig {
   actorField?: string;
 }
 
-function parseLimit(url: URL): number | null {
+// Exported (2026-08-12, Campañas admin screen): GET /api/v1/campaigns
+// became a bespoke handler that needs the exact same limit/cursor
+// parsing this factory already uses, to stay byte-for-byte consistent
+// with every other list route's pagination contract rather than
+// re-deriving it. No behavior change for existing callers.
+export function parseLimit(url: URL): number | null {
   const raw = url.searchParams.get("limit");
 
   if (raw === null) {
