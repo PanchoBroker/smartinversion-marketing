@@ -248,3 +248,138 @@ export function createCreateHandler(config: ResourceConfig) {
     );
   };
 }
+// 2026-08-12 (publications approval/scheduling): shared PATCH handler,
+// same "schema validation at the boundary, RLS is the independent second
+// layer" shape as createCreateHandler above -- but update, unlike create,
+// targets a single row by id and has no engine underneath it (unlike
+// campaigns'/opportunities' execute_state_transition-backed transition
+// routes, command-routes.ts): public.publications has its own trigger
+// (publications_validate_status_transition, S5-002) that enforces the
+// permitted-transition graph directly on UPDATE, and its own per-role RLS
+// (publications_publisher_update/publications_approver_update, S5-006) --
+// both already exist, this factory only adds the first authenticated
+// entry point to them, mirroring how createListHandler/createCreateHandler
+// (S2-009) did the same for GET/POST. Generic on purpose: any future
+// table with the same "existing trigger + existing per-role RLS, no
+// engine" shape can reuse this without a new bespoke handler.
+export interface UpdateResourceConfig {
+  table: string;
+  updateAction: AuthorizationAction;
+  updatableFields: readonly string[];
+}
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+export function createUpdateHandler(config: UpdateResourceConfig) {
+  return async function PATCH(
+    request: Request,
+    routeContext: { params: Promise<{ id: string }> },
+  ): Promise<Response> {
+    const authorized = await authorizePrivateRoute(
+      request,
+      config.updateAction,
+    );
+
+    if (!authorized.ok) {
+      return authorized.response;
+    }
+
+    const { context } = authorized;
+    const { id } = await routeContext.params;
+
+    if (!UUID_PATTERN.test(id)) {
+      return apiError(
+        400,
+        "invalid_request",
+        context.correlationId,
+        { field: "id" },
+      );
+    }
+
+    let body: unknown;
+
+    try {
+      body = await request.json();
+    } catch {
+      return apiError(
+        400,
+        "invalid_request",
+        context.correlationId,
+        { reason: "invalid_json" },
+      );
+    }
+
+    if (
+      typeof body !== "object" ||
+      body === null ||
+      Array.isArray(body)
+    ) {
+      return apiError(
+        400,
+        "invalid_request",
+        context.correlationId,
+        { reason: "object_body_required" },
+      );
+    }
+
+    const payload = body as Record<string, unknown>;
+    const allowedFields = new Set(config.updatableFields);
+
+    for (const field of Object.keys(payload)) {
+      if (!allowedFields.has(field)) {
+        return apiError(
+          400,
+          "invalid_request",
+          context.correlationId,
+          { reason: "unknown_field", field },
+        );
+      }
+    }
+
+    if (Object.keys(payload).length === 0) {
+      return apiError(
+        400,
+        "invalid_request",
+        context.correlationId,
+        { reason: "empty_update" },
+      );
+    }
+
+    const { data, error } = await context.userClient
+      .from(config.table)
+      .update(payload)
+      .eq("id", id)
+      .select("*")
+      .maybeSingle();
+
+    if (error) {
+      return databaseErrorResponse(
+        error,
+        context.correlationId,
+      );
+    }
+
+    // RLS on this route's only current consumer (publications) is
+    // unconditional per role -- publisher/approver, once authorized at
+    // the app layer above, can reach every row (same note S5-006's own
+    // migration makes: "RLS here answers only 'may this role attempt an
+    // update at all', never 'which transition'"). A caller who passed
+    // that gate but still gets zero rows back can only mean the id does
+    // not exist, never a hidden RLS denial -- safe to report as 404.
+    if (!data) {
+      return apiError(404, "not_found", context.correlationId);
+    }
+
+    logInfo({
+      event: "api.resource.updated",
+      correlationId: context.correlationId,
+      context: {
+        resource: config.table,
+        exercised_role: context.exercisedRole,
+      },
+    });
+
+    return apiJson(200, { item: data }, context.correlationId);
+  };
+}
