@@ -1,21 +1,14 @@
-// Interfaz admin (2026-08-12): placeholder honesto -- el backend de
-// este módulo ya está en producción (ver PRs de esta misma jornada),
-// la pantalla se construye en su propia iteración siguiente. No se
-// oculta del menú (el usuario quiere visibilidad del sistema completo
-// desde el día uno), pero tampoco se simula contenido que no existe.
+import { RoleAssignmentsScreen } from "@/components/admin/role-assignments/role-assignments-screen";
+
+// Role-assignments admin screen (2026-08-12): thin server wrapper --
+// the real authentication gate for everything under /app already lives
+// in src/app/app/layout.tsx (single source of truth for the 5
+// orchestration screens, per its own header comment). This page does not
+// duplicate that gate the way the pre-existing /app and /app/security
+// pages do (their duplication predates the layout and was kept on
+// purpose as defense in depth) -- every new screen built under this
+// layout relies on it alone, same as the campaigns/leads/qa/publications
+// placeholders it replaces here.
 export default function RoleAssignmentsPage() {
-  return (
-    <section className="mx-auto max-w-3xl rounded-2xl border border-slate-800 bg-slate-900 p-8 shadow-2xl">
-      <p className="text-sm font-semibold uppercase tracking-[0.2em] text-amber-400">
-        Próximamente
-      </p>
-      <h1 className="mt-4 text-2xl font-semibold text-slate-100">
-        Asignación de roles
-      </h1>
-      <p className="mt-4 text-sm leading-6 text-slate-400">
-        El backend de este módulo ya está desplegado y validado. Esta
-        pantalla se construye en la siguiente iteración de la interfaz.
-      </p>
-    </section>
-  );
+  return <RoleAssignmentsScreen />;
 }
