@@ -670,15 +670,21 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
   // implements). This coarse layer admits all four; the RPC itself is
   // what actually shapes/masks the response per role, not RLS (restricted
   // is not exposed through the Data API at all -- see that migration's
-  // header). lead.write stays commercial_liaison-only, unchanged: no
-  // write route exists yet in this iteration.
+  // header). lead.write widened 2026-08-12 (admin interface scoping) to
+  // also admit administrator: docs/access-control-matrix.md Section 14
+  // gives leads a real 'U' cell for BOTH administrator ("Restricted L R
+  // U") and commercial_liaison ("Assigned L R U") -- the S5-008 note
+  // above only left it commercial_liaison-only because no write route
+  // existed yet at that time, not because administrator lacks the cell.
+  // The new PATCH /api/v1/leads/{id} route (public.reclassify_lead) is
+  // this action's first real consumer.
   "lead.read": [
     "administrator",
     "commercial_liaison",
     "campaign_manager",
     "results_analyst",
   ],
-  "lead.write": ["commercial_liaison"],
+  "lead.write": ["administrator", "commercial_liaison"],
 
   // S5-008 (iteration 4/N): lead_deliveries (docs/access-control-matrix.md
   // Section 14). All four roles that hold a real cell are admitted at
