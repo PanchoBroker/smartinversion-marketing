@@ -98,6 +98,13 @@ export const AUTHORIZATION_ACTIONS = [
   "metrics.read",
   "metrics.write",
   "metrics.approve",
+  // Static role catalog (S1-002), read-only, needed by the
+  // role-assignments admin screen (2026-08-12,
+  // 20260920000000_role_and_profile_administrator_select_rls.sql).
+  // Kept separate from user.read/write/approve below: reading role
+  // names is not an "administrative function" under Section 6, so it
+  // is deliberately NOT added to MFA_REQUIRED_ACTIONS.
+  "role.read",
   "user.read",
   "user.write",
   "user.approve",
@@ -800,6 +807,11 @@ const POLICY: Record<AuthorizationAction, readonly HumanRoleCode[]> = {
   "metrics.read": TEAM_ROLES,
   "metrics.write": ["results_analyst"],
   "metrics.approve": ["campaign_manager"],
+
+  // Static role catalog (S1-002) -- every human role reads
+  // unconditionally, per access-control-matrix.md Section 8
+  // ("roles": R for every actor category, no "own" qualifier).
+  "role.read": TEAM_ROLES,
 
   "user.read": ["administrator"],
   "user.write": ["administrator"],

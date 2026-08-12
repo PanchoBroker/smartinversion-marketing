@@ -22,6 +22,15 @@ export interface ResourceConfig {
   createAction: AuthorizationAction;
   requiredFields: readonly string[];
   optionalFields: readonly string[];
+  // 2026-08-12 (role-assignments admin screen): every table this
+  // factory has served so far names its actor column `created_by`.
+  // public.role_assignments names it `assigned_by` (S1-002) and its
+  // own RLS insert policy checks `assigned_by = current_profile_id()`
+  // specifically (S1-004) -- inserting under `created_by` would either
+  // hit an unknown-column error or silently fail the RLS check.
+  // Optional, defaults to "created_by" so every existing caller of
+  // this factory is unaffected.
+  actorField?: string;
 }
 
 function parseLimit(url: URL): number | null {
@@ -201,7 +210,7 @@ export function createCreateHandler(config: ResourceConfig) {
     }
 
     const row: Record<string, unknown> = {
-      created_by: context.profileId,
+      [config.actorField ?? "created_by"]: context.profileId,
     };
 
     for (const field of knownFields) {
